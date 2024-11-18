@@ -1,32 +1,33 @@
-# Smart Audio Books Listener
+# Parom Audio Books Listener
 
-## Описание
-Smart Audio Books Listener - это приложение на Flutter для прослушивания аудиокниг с возможностью управления воспроизведением, создания закладок и поддержки различных форматов аудиофайлов.
+## Description
+Smart Audio Books Listener is a Flutter application for listening to audiobooks with playback control features, bookmark creation, and support for various audio file formats.
 
-## Установка
-1. Убедитесь, что у вас установлен Flutter SDK. Следуйте [инструкциям по установке Flutter](https://flutter.dev/docs/get-started/install).
-2. Клонируйте репозиторий:
+## Installation
+1. Make sure you have Flutter SDK installed. Follow the [Flutter installation instructions](https://flutter.dev/docs/get-started/install).
+2. Clone the repository:
    ```bash
    git clone https://github.com/username/smart-audio-books-listener.git
-3. Перейдите в директорию проекта:
+3. Navigate to the project directory:
 ```
 cd smart-audio-books-listener
 ```
-4. Установите зависимости:
+4. Install dependencies:
 ```
 flutter pub get
 ```
 
-## Запуск
-Запустите приложение на эмуляторе или подключенном устройстве:
+## Running
+Launch the application on an emulator or connected device:
 
 ```
 flutter run
 ```
 
-## Требования
+## Requirements
 - Flutter SDK >= 2.x
 - Dart SDK >= 2.x
 
-## Лицензия
-Этот проект лицензирован под MIT License.
+## License
+This project is licensed under the MIT License.
+```
