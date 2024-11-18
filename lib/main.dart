@@ -6,6 +6,8 @@ void main() {
 }
 
 class AudioBookApp extends StatelessWidget {
+  const AudioBookApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(

@@ -5,6 +5,8 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
 class PlayerScreen extends StatefulWidget {
+  const PlayerScreen({super.key});
+
   @override
   _PlayerScreenState createState() => _PlayerScreenState();
 }
