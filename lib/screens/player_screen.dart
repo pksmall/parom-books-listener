@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
+import '../playlist_provider.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -24,52 +23,77 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     _loadAudio();
 
-    // Слушаем изменение позиции воспроизведения
     _audioPlayer.positionStream.listen((pos) {
       setState(() {
         position = pos;
       });
     });
 
-    // Слушаем изменение длительности
     _audioPlayer.durationStream.listen((dur) {
       setState(() {
         duration = dur;
       });
     });
+
+    // Добавляем слушатель состояния плеера
+    _audioPlayer.playerStateStream.listen((state) {
+      if (mounted) {
+        setState(() {
+          isPlaying = state.playing;
+        });
+      }
+    });
+  }
+
+
+  String _formatDuration(Duration? duration) {
+    if (duration == null) {
+      return '--:--';
+    }
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
+    return '$twoDigitMinutes:$twoDigitSeconds';
   }
 
   Future<void> _loadAudio() async {
+    final wasPlaying = isPlaying;
+
     try {
       setState(() {
         isLoading = true;
         errorMessage = null;
       });
 
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/test.mp3');
+      final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+      final currentBook = playlistProvider.currentAudioBook;
 
-      if (!await file.exists()) {
-        final byteData = await rootBundle.load('assets/test.mp3');
-        await file.writeAsBytes(byteData.buffer.asUint8List());
+      if (currentBook == null) {
+        setState(() {
+          errorMessage = 'No audio file selected';
+          isLoading = false;
+        });
+        return;
       }
 
-      await _audioPlayer.setFilePath(file.path);
+      await _audioPlayer.setFilePath(currentBook.audioUrl);
 
-      _audioPlayer.playerStateStream.listen((state) {
-        if (mounted) {
-          setState(() {
-            isPlaying = state.playing;
-          });
+      // Восстанавливаем состояние воспроизведения
+      if (wasPlaying) {
+        await _audioPlayer.play();
+      }
+
+      _audioPlayer.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+          playlistProvider.nextTrack();
+          _loadAudio();
         }
-      }, onError: (error) {
-        setState(() {
-          errorMessage = error.toString();
-        });
       });
 
       setState(() {
         isLoading = false;
+        isPlaying = wasPlaying;
       });
 
     } catch (e) {
@@ -81,16 +105,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  String _formatDuration(Duration? duration) {
-    if (duration == null) return '--:--';
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    return '$twoDigitMinutes:$twoDigitSeconds';
-  }
-
   @override
   Widget build(BuildContext context) {
+    final currentBook = Provider.of<PlaylistProvider>(context).currentAudioBook;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Audio Player'),
@@ -106,14 +124,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
             else
               Column(
                 children: [
-                  // Название файла
+                  // Обновляем отображение названия файла
                   Text(
-                    'test.mp3',
+                    currentBook?.title ?? 'No file selected',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   SizedBox(height: 20),
 
-                  // Ползунок и время
+                  // Остальной код без изменений
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
@@ -143,11 +161,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                   SizedBox(height: 20),
 
-                  // Кнопки управления
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Перемотка назад на 10 секунд
+                      IconButton(
+                        icon: Icon(Icons.skip_previous),
+                        iconSize: 32,
+                        onPressed: () {
+                          Provider.of<PlaylistProvider>(context, listen: false).previousTrack();
+                          _loadAudio();
+                        },
+                      ),
                       IconButton(
                         icon: Icon(Icons.replay_10),
                         iconSize: 32,
@@ -159,7 +183,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                       SizedBox(width: 20),
 
-                      // Кнопка play/pause
                       ElevatedButton(
                         onPressed: () async {
                           try {
@@ -180,13 +203,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                       SizedBox(width: 20),
 
-                      // Перемотка вперед на 10 секунд
                       IconButton(
                         icon: Icon(Icons.forward_10),
                         iconSize: 32,
                         onPressed: () async {
                           final newPosition = position + Duration(seconds: 10);
                           await _audioPlayer.seek(newPosition);
+                        },
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.skip_next),
+                        iconSize: 32,
+                        onPressed: () {
+                          Provider.of<PlaylistProvider>(context, listen: false).nextTrack();
+                          _loadAudio();
                         },
                       ),
                     ],
