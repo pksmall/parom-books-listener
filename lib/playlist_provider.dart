@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'models/audio_book.dart';
 
 class PlaylistProvider extends ChangeNotifier {
-  List<AudioBook> _playlist = [];
+  final List<AudioBook> _playlist = [];
   int _currentIndex = 0;
 
   List<AudioBook> get playlist => _playlist;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:just_audio/just_audio.dart';
 import '../playlist_provider.dart';
+import '../widgets/app_menu.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -112,6 +113,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Audio Player'),
+        actions: [
+          AppMenu(),
+        ],
       ),
       body: Center(
         child: Column(

@@ -6,6 +6,7 @@ import 'player_screen.dart';
 import '../models/audio_book.dart';
 import '../playlist_provider.dart';
 import 'package:provider/provider.dart';
+import '../widgets/app_menu.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
@@ -59,10 +60,14 @@ class LibraryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Library'),
-      ),
+        actions: [
+          AppMenu(),
+        ],
+    ),
       body: Consumer<PlaylistProvider>(
         builder: (context, playlistProvider, child) {
           return Column(
