@@ -82,6 +82,7 @@ class LibraryScreen extends StatelessWidget {
             LoadingProgress.totalFiles = totalFiles;
 
             final duration = await _getAudioDuration(entity.path) ?? Duration.zero;
+            print('Scanned file duration: $duration');
             audioBooks.add(
               AudioBook(
                 id: entity.path,

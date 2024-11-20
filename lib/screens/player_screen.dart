@@ -1,8 +1,10 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audio_service/audio_service.dart';
 import '../playlist_provider.dart';
 import '../widgets/app_menu.dart';
+import '../audio_handler.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -12,34 +14,50 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  late final AudioPlayerHandler _audioHandler;
   bool isPlaying = false;
   bool isLoading = true;
   String? errorMessage;
   Duration? duration;
   Duration position = Duration.zero;
 
+  double get _sliderValue {
+    if (duration == null || position.inSeconds > duration!.inSeconds) {
+      return 0.0;
+    }
+    return position.inSeconds.toDouble();
+  }
+
   @override
   void initState() {
     super.initState();
+    _audioHandler = context.read<AudioPlayerHandler>();
     _loadAudio();
 
-    _audioPlayer.positionStream.listen((pos) {
-      setState(() {
-        position = pos;
-      });
-    });
-
-    _audioPlayer.durationStream.listen((dur) {
-      setState(() {
-        duration = dur;
-      });
-    });
-
-    _audioPlayer.playerStateStream.listen((state) {
+    // Подписываемся на обновления состояния плеера
+    _audioHandler.playbackState.listen((state) {
       if (mounted) {
         setState(() {
           isPlaying = state.playing;
+          isLoading = state.processingState == AudioProcessingState.loading;
+        });
+      }
+    });
+
+    // Подписываемся на обновления метаданных трека
+    _audioHandler.mediaItem.listen((mediaItem) {
+      if (mounted && mediaItem != null) {
+        setState(() {
+          duration = mediaItem.duration;
+        });
+      }
+    });
+
+    // Используем геттер positionStream вместо прямого доступа к _player
+    _audioHandler.positionStream.listen((pos) {
+      if (mounted) {
+        setState(() {
+          position = pos;
         });
       }
     });
@@ -54,8 +72,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _loadAudio() async {
-    final wasPlaying = isPlaying;
-
     try {
       setState(() {
         isLoading = true;
@@ -73,24 +89,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
-      await _audioPlayer.setFilePath(currentBook.audioUrl);
+      await _audioHandler.setAudioSource(currentBook.audioUrl);
 
-      // Восстанавливаем состояние воспроизведения
-      if (wasPlaying) {
-        await _audioPlayer.play();
+      final duration = await _audioHandler.duration;
+      print('Loaded audio duration: $duration');
+
+      if (duration != null) {
+        setState(() {
+          this.duration = duration;
+          position = Duration.zero; // Сбрасываем позицию
+        });
+      } else {
+        print('Warning: Duration is null');
       }
-
-      _audioPlayer.processingStateStream.listen((state) {
-        if (state == ProcessingState.completed) {
-          final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-          playlistProvider.nextTrack();
-          _loadAudio();
-        }
-      });
 
       setState(() {
         isLoading = false;
-        isPlaying = wasPlaying;
+        isPlaying = false;
       });
 
     } catch (e) {
@@ -138,14 +153,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             children: [
                               Text(_formatDuration(position)),
                               Expanded(
-                                child: Slider(
-                                  value: position.inSeconds.toDouble(),
-                                  min: 0,
-                                  max: duration?.inSeconds.toDouble() ?? 0,
-                                  onChanged: (value) async {
-                                    final position = Duration(seconds: value.toInt());
-                                    await _audioPlayer.seek(position);
-                                  },
+                                child: SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    thumbShape: RoundSliderThumbShape(enabledThumbRadius: 8),
+                                    trackHeight: 2,
+                                  ),
+                                  child: Slider(
+                                    value: min(
+                                      max(0, position.inSeconds.toDouble()),
+                                      duration?.inSeconds.toDouble() ?? 1,
+                                    ),
+                                    min: 0,
+                                    max: max(duration?.inSeconds.toDouble() ?? 1, 1),
+                                    onChanged: (value) {
+                                      if (duration != null) {
+                                        setState(() {
+                                          position = Duration(seconds: value.toInt());
+                                        });
+                                      }
+                                    },
+                                    onChangeEnd: (value) async {
+                                      if (duration != null) {
+                                        await _audioHandler.seek(Duration(seconds: value.toInt()));
+                                      }
+                                    },
+                                  ),
                                 ),
                               ),
                               Text(_formatDuration(duration)),
@@ -165,35 +197,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               IconButton(
                                 icon: Icon(Icons.replay_10),
                                 iconSize: 32,
-                                onPressed: () async {
-                                  final newPosition = position - Duration(seconds: 10);
-                                  await _audioPlayer.seek(newPosition);
-                                },
+                                onPressed: () => _audioHandler.skipToPrevious(),
                               ),
-                              ElevatedButton(
+                              IconButton(
+                                icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                                iconSize: 48,
                                 onPressed: () async {
-                                  try {
-                                    if (isPlaying) {
-                                      await _audioPlayer.pause();
-                                    } else {
-                                      await _audioPlayer.play();
-                                    }
-                                  } catch (e) {
-                                    print('Error playing audio: $e');
+                                  if (isPlaying) {
+                                    await _audioHandler.pause();
+                                  } else {
+                                    await _audioHandler.play();
                                   }
                                 },
-                                child: Icon(
-                                  isPlaying ? Icons.pause : Icons.play_arrow,
-                                  size: 32,
-                                ),
                               ),
                               IconButton(
                                 icon: Icon(Icons.forward_10),
                                 iconSize: 32,
-                                onPressed: () async {
-                                  final newPosition = position + Duration(seconds: 10);
-                                  await _audioPlayer.seek(newPosition);
-                                },
+                                onPressed: () => _audioHandler.skipToNext(),
                               ),
                               IconButton(
                                 icon: Icon(Icons.skip_next),
@@ -252,7 +272,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
     super.dispose();
   }
 }
