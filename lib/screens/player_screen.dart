@@ -21,13 +21,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? duration;
   Duration position = Duration.zero;
 
-  double get _sliderValue {
-    if (duration == null || position.inSeconds > duration!.inSeconds) {
-      return 0.0;
-    }
-    return position.inSeconds.toDouble();
-  }
-
   @override
   void initState() {
     super.initState();
@@ -91,7 +84,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       await _audioHandler.setAudioSource(currentBook.audioUrl);
 
-      final duration = await _audioHandler.duration;
+      final duration = _audioHandler.duration;
       print('Loaded audio duration: $duration');
 
       if (duration != null) {

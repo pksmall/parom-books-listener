@@ -10,7 +10,6 @@ import '../models/audio_book.dart';
 import '../playlist_provider.dart';
 import 'package:provider/provider.dart';
 import '../widgets/app_menu.dart';
-import '../models/loading_progress.dart';
 
 
 class LibraryScreen extends StatelessWidget {
@@ -27,7 +26,7 @@ class LibraryScreen extends StatelessWidget {
     try {
       final player = AudioPlayer();
       await player.setFilePath(filePath);
-      final duration = await player.duration;
+      final duration = player.duration;
       await player.dispose();
       return duration;
     } catch (e) {

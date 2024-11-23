@@ -7,12 +7,14 @@ class LoadingProgress {
 }
 
 class LoadingProgressModel extends StatelessWidget {
+  const LoadingProgressModel({super.key});
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder(
       stream: Stream.periodic(Duration(milliseconds: 100)),
       builder: (context, snapshot) {
-        return Container(
+        return SizedBox(
           width: 300,
           child: Column(
             mainAxisSize: MainAxisSize.min,
