@@ -22,6 +22,26 @@ class LibraryScreen extends StatelessWidget {
     return '$twoDigitMinutes:$twoDigitSeconds';
   }
 
+  int? extractNumber(String fileName) {
+    final regex = RegExp(r'(\d+)');
+    final match = regex.firstMatch(fileName);
+    if (match != null) {
+      return int.tryParse(match.group(1)!);
+    }
+    return null;
+  }
+
+  // Функция сравнения для сортировки
+  int compareFiles(AudioBook a, AudioBook b) {
+    final numA = extractNumber(a.title);
+    final numB = extractNumber(b.title);
+
+    if (numA != null && numB != null) {
+      return numA.compareTo(numB);
+    }
+    return a.title.compareTo(b.title);
+  }
+
   Future<Duration?> _getAudioDuration(String filePath) async {
     try {
       final player = AudioPlayer();
@@ -35,23 +55,47 @@ class LibraryScreen extends StatelessWidget {
     }
   }
 
+  void _clearLibrary(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Clear Library'),
+          content: Text('Are you sure you want to clear the library?'),
+          actions: [
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            TextButton(
+              child: Text('Clear'),
+              onPressed: () {
+                Provider.of<PlaylistProvider>(context, listen: false).clearPlaylist();
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Library cleared')),
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _scanDirectory(BuildContext context) async {
     try {
       String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
       if (selectedDirectory == null) return;
 
-      // Создаем диалог прогресса
+      // Показываем диалог прогресса
       showDialog(
         context: context,
         barrierDismissible: false,
         builder: (BuildContext context) {
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: Text('Scanning files...'),
-                content: LoadingProgressModel(),
-              );
-            },
+          return AlertDialog(
+            title: Text('Scanning files...'),
+            content: LoadingProgressModel(),
           );
         },
       );
@@ -59,7 +103,7 @@ class LibraryScreen extends StatelessWidget {
       List<AudioBook> audioBooks = [];
       Directory directory = Directory(selectedDirectory);
 
-      // Сначала подсчитаем общее количество MP3 файлов
+      // Подсчет общего количества MP3 файлов
       int totalFiles = 0;
       await for (var entity in directory.list(recursive: true)) {
         if (entity is File && path.extension(entity.path).toLowerCase() == '.mp3') {
@@ -67,25 +111,26 @@ class LibraryScreen extends StatelessWidget {
         }
       }
 
-      // Теперь обрабатываем файлы с отображением прогресса
+      LoadingProgress.totalFiles = totalFiles;
       int processedFiles = 0;
+
       await for (var entity in directory.list(recursive: true)) {
         if (entity is File) {
           String ext = path.extension(entity.path).toLowerCase();
           if (ext == '.mp3') {
-            String fileName = path.basename(entity.path);
+            String relativePath = path.relative(entity.path, from: selectedDirectory);
+            List<String> pathComponents = path.split(relativePath);
+            pathComponents.last = pathComponents.last.replaceAll(ext, '');
+            String title = pathComponents.join(' - ');
 
-            // Обновляем информацию о прогрессе
-            LoadingProgress.currentFileName = fileName;
+            LoadingProgress.currentFileName = title;
             LoadingProgress.processedFiles = processedFiles;
-            LoadingProgress.totalFiles = totalFiles;
 
             final duration = await _getAudioDuration(entity.path) ?? Duration.zero;
-            print('Scanned file duration: $duration');
             audioBooks.add(
               AudioBook(
                 id: entity.path,
-                title: fileName,
+                title: title,
                 author: 'Unknown',
                 coverUrl: '',
                 audioUrl: entity.path,
@@ -97,10 +142,16 @@ class LibraryScreen extends StatelessWidget {
         }
       }
 
-      // Закрываем диалог прогресса
-      Navigator.of(context, rootNavigator: true).pop();
+      // Сортируем аудиокниги
+      audioBooks.sort(compareFiles);
 
-      if (audioBooks.isNotEmpty) {
+      // Закрываем диалог прогресса
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      // Добавляем книги только если есть что добавлять
+      if (audioBooks.isNotEmpty && context.mounted) {
         Provider.of<PlaylistProvider>(context, listen: false)
             .addAudioBooks(audioBooks);
 
@@ -110,15 +161,17 @@ class LibraryScreen extends StatelessWidget {
           ),
         );
       }
+
     } catch (e) {
       // Закрываем диалог прогресса в случае ошибки
-      Navigator.of(context, rootNavigator: true).pop();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error scanning directory: $e'),
-        ),
-      );
+      if (context.mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error scanning directory: $e'),
+          ),
+        );
+      }
     }
   }
 
@@ -154,6 +207,15 @@ class LibraryScreen extends StatelessWidget {
                             );
                           },
                     child: Text('Open Player'),
+                  ),
+                  ElevatedButton(
+                    onPressed: playlistProvider.playlist.isEmpty
+                        ? null
+                        : () => _clearLibrary(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                    child: Text('Clear Library'),
                   ),
                 ],
               ),
