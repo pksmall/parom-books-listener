@@ -30,4 +30,8 @@ flutter run
 
 ## License
 This project is licensed under the MIT License.
+
+## Relase
+```
+flutter build macos --release
 ```
