@@ -9,13 +9,13 @@ Smart Audio Books Listener is a Flutter application for listening to audiobooks 
    ```bash
    git clone https://github.com/username/smart-audio-books-listener.git
 3. Navigate to the project directory:
-```
-cd smart-audio-books-listener
-```
+   ```
+   cd smart-audio-books-listener
+   ```
 4. Install dependencies:
-```
-flutter pub get
-```
+   ```
+   flutter pub get
+   ```
 
 ## Running
 Launch the application on an emulator or connected device:

@@ -66,6 +66,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadAudio() async {
     try {
+      // Store current playing state before loading new audio
+      final wasPlaying = isPlaying;
+
       setState(() {
         isLoading = true;
         errorMessage = null;
@@ -90,7 +93,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (duration != null) {
         setState(() {
           this.duration = duration;
-          position = Duration.zero; // Сбрасываем позицию
+          position = Duration.zero; // Reset position
         });
       } else {
         print('Warning: Duration is null');
@@ -98,8 +101,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       setState(() {
         isLoading = false;
-        isPlaying = false;
+        isPlaying = false; // Initially set to false
       });
+
+      // If it was playing before, start playing the new track
+      if (wasPlaying) {
+        await _audioHandler.play();
+      }
 
     } catch (e) {
       setState(() {
