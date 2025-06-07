@@ -1,0 +1,82 @@
+name: Build Flutter App
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            platform: windows
+            extension: .exe
+          - os: macos-latest
+            platform: macos
+            extension: .app
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Enable desktop support
+        run: |
+          flutter config --enable-windows-desktop
+          flutter config --enable-macos-desktop
+
+      - name: Build for Windows
+        if: matrix.platform == 'windows'
+        run: |
+          flutter build windows --release
+
+      - name: Build for macOS
+        if: matrix.platform == 'macos'
+        run: |
+          flutter build macos --release
+
+      - name: Archive Windows build
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-build
+          path: build/windows/runner/Release/
+
+      - name: Archive macOS build
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-build
+          path: build/macos/Build/Products/Release/
+
+      - name: Create release archive (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          cd build/windows/runner/Release
+          7z a -tzip ../../../../${{ github.event.repository.name }}-windows.zip *
+
+      - name: Create release archive (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../${{ github.event.repository.name }}-macos.zip *.app
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-${{ matrix.platform }}
+          path: ${{ github.event.repository.name }}-${{ matrix.platform }}.zip

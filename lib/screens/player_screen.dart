@@ -25,6 +25,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void initState() {
     super.initState();
     _audioHandler = context.read<AudioPlayerHandler>();
+
+    // Set up track completion callback
+    _audioHandler.onTrackCompleted = _onTrackCompleted;
+
     _loadAudio();
 
     // Подписываемся на обновления состояния плеера
@@ -62,6 +66,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
     return '$twoDigitMinutes:$twoDigitSeconds';
+  }
+
+  void _onTrackCompleted() {
+    if (!mounted) return;
+
+    final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+
+    // Automatically move to next track if available
+    if (playlistProvider.hasNextTrack) {
+      playlistProvider.nextTrack();
+      _loadAudio();
+    } else {
+      // If it's the last track, stop playing
+      setState(() {
+        isPlaying = false;
+      });
+    }
   }
 
   Future<void> _loadAudio() async {
@@ -273,6 +294,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    // Clear the callback to prevent memory leaks
+    _audioHandler.onTrackCompleted = null;
     super.dispose();
   }
 }

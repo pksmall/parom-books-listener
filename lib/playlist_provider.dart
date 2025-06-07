@@ -29,6 +29,8 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
+  bool get hasNextTrack => _currentIndex < _playlist.length - 1;
+
   void previousTrack() {
     if (_currentIndex > 0) {
       _currentIndex--;

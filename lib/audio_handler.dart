@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
+  Function()? onTrackCompleted;
 
   Duration? get duration => _player.duration;
 
@@ -19,6 +20,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
     _player.playerStateStream.listen((playerState) {
       _broadcastState();
+
+      // Check if track completed and call callback
+      if (playerState.processingState == ProcessingState.completed) {
+        onTrackCompleted?.call();
+      }
     });
   }
 
