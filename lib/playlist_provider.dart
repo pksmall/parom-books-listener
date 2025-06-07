@@ -148,8 +148,19 @@ class PlaylistProvider extends ChangeNotifier {
     if (!settings['autoSavePosition']) return;
 
     _positionSaveTimer?.cancel();
-    _positionSaveTimer = Timer(Duration(seconds: settings['positionSaveTimeout']), () {
-      _saveCurrentPosition();
+
+    // Минимальный порог 1 секунда
+    final timeoutSeconds = (settings['positionSaveTimeout'] as int).clamp(1, 60);
+
+    print("Scheduling position save for $timeoutSeconds sec");
+    _positionSaveTimer = Timer(Duration(seconds: timeoutSeconds), () async {
+      // Сохраняем в фоне
+      try {
+        await _saveCurrentPosition();
+        print("Position saved in background");
+      } catch (e) {
+        print("Error saving position in background: $e");
+      }
     });
   }
 

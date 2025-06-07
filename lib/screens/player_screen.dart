@@ -88,7 +88,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Automatically move to next track if available
     if (playlistProvider.hasNextTrack) {
       playlistProvider.nextTrack();
-      _loadAudio();
+      _loadAudio(shouldAutoplay: true); // Auto-play next track
     } else {
       // If it's the last track, stop playing
       setState(() {
@@ -97,7 +97,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _loadAudio() async {
+  Future<void> _loadAudio({bool shouldAutoplay = false}) async {
     try {
       setState(() {
         isLoading = true;
@@ -147,6 +147,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         isLoading = false;
         isPlaying = false; // Initially set to false
       });
+
+      // Auto-play if requested
+      if (shouldAutoplay) {
+        await _audioHandler.play();
+      }
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -247,8 +252,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 icon: Icon(Icons.skip_previous),
                                 iconSize: 32,
                                 onPressed: () {
+                                  final wasPlaying = isPlaying;
                                   Provider.of<PlaylistProvider>(context, listen: false).previousTrack();
-                                  _loadAudio();
+                                  _loadAudio(shouldAutoplay: wasPlaying);
                                 },
                               ),
                               IconButton(
@@ -282,8 +288,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 icon: Icon(Icons.skip_next),
                                 iconSize: 32,
                                 onPressed: () {
+                                  final wasPlaying = isPlaying;
                                   Provider.of<PlaylistProvider>(context, listen: false).nextTrack();
-                                  _loadAudio();
+                                  _loadAudio(shouldAutoplay: wasPlaying);
                                 },
                               ),
                             ],
@@ -319,8 +326,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ? Icon(Icons.play_arrow, color: Theme.of(context).primaryColor)
                           : null,
                       onTap: () {
+                        final wasPlaying = isPlaying;
                         playlistProvider.setCurrentIndex(index);
-                        _loadAudio();
+                        _loadAudio(shouldAutoplay: wasPlaying);
                       },
                     );
                   },
