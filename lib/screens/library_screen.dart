@@ -152,8 +152,11 @@ class LibraryScreen extends StatelessWidget {
 
       // Добавляем книги только если есть что добавлять
       if (audioBooks.isNotEmpty && context.mounted) {
-        Provider.of<PlaylistProvider>(context, listen: false)
-            .addAudioBooks(audioBooks);
+        final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+        playlistProvider.addAudioBooks(audioBooks);
+
+        print('LibraryScreen: Added ${audioBooks.length} files to playlist');
+        print('LibraryScreen: Total playlist size: ${playlistProvider.playlist.length}');
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -186,6 +189,7 @@ class LibraryScreen extends StatelessWidget {
       ),
       body: Consumer<PlaylistProvider>(
         builder: (context, playlistProvider, child) {
+          print('LibraryScreen: Building with ${playlistProvider.playlist.length} tracks');
           return Column(
             children: [
               Row(

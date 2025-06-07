@@ -5,6 +5,7 @@ import 'package:audio_service/audio_service.dart';
 import '../playlist_provider.dart';
 import '../widgets/app_menu.dart';
 import '../audio_handler.dart';
+import '../services/playlist_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -21,6 +22,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Duration? duration;
   Duration position = Duration.zero;
 
+
   @override
   void initState() {
     super.initState();
@@ -34,10 +36,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Подписываемся на обновления состояния плеера
     _audioHandler.playbackState.listen((state) {
       if (mounted) {
+        final wasPlaying = isPlaying;
         setState(() {
           isPlaying = state.playing;
           isLoading = state.processingState == AudioProcessingState.loading;
         });
+
+        // Save position when pausing
+        if (wasPlaying && !state.playing && !isLoading) {
+          _saveCurrentPosition();
+        }
       }
     });
 
@@ -56,6 +64,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() {
           position = pos;
         });
+
+        // Update position in playlist provider
+        Provider.of<PlaylistProvider>(context, listen: false)
+            .updateCurrentTrackPosition(pos);
       }
     });
   }
@@ -87,9 +99,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadAudio() async {
     try {
-      // Store current playing state before loading new audio
-      final wasPlaying = isPlaying;
-
       setState(() {
         isLoading = true;
         errorMessage = null;
@@ -103,19 +112,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
           errorMessage = 'No audio file selected';
           isLoading = false;
         });
+
         return;
       }
 
-      await _audioHandler.setAudioSource(currentBook.audioUrl);
+      print('Loading audio for: ${currentBook.title}');
 
+      // Load saved position for this track
+      final savedPosition = await _loadTrackPosition(currentBook.id);
+
+      await _audioHandler.setAudioSource(currentBook.audioUrl);
       final duration = _audioHandler.duration;
-      print('Loaded audio duration: $duration');
 
       if (duration != null) {
         setState(() {
           this.duration = duration;
-          position = Duration.zero; // Reset position
+          position = savedPosition; // Use loaded saved position
         });
+
+        // Seek to saved position if it exists
+        if (savedPosition > Duration.zero) {
+          print('Seeking to saved position: ${savedPosition.inMinutes}:${savedPosition.inSeconds % 60}');
+          await _audioHandler.seek(savedPosition);
+        } else {
+          // If no saved position, save initial zero position
+          print('No saved position found, saving initial zero position');
+          playlistProvider.updateCurrentTrackPosition(Duration.zero);
+        }
       } else {
         print('Warning: Duration is null');
       }
@@ -124,12 +147,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         isLoading = false;
         isPlaying = false; // Initially set to false
       });
-
-      // If it was playing before, start playing the new track
-      if (wasPlaying) {
-        await _audioHandler.play();
-      }
-
     } catch (e) {
       setState(() {
         isLoading = false;
@@ -138,6 +155,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
       print('Error loading audio: $e');
     }
   }
+
+  Future<Duration> _loadTrackPosition(String trackId) async {
+    try {
+      final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+      return await playlistProvider.loadTrackPosition(trackId);
+    } catch (e) {
+      print('Error loading track position: $e');
+      return Duration.zero;
+    }
+  }
+  void _saveCurrentPosition() {
+    print('PlayerScreen: Saving current position: ${position.inMinutes}:${position.inSeconds % 60}');
+    final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+    playlistProvider.updateCurrentTrackPosition(position);
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +229,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     },
                                     onChangeEnd: (value) async {
                                       if (duration != null) {
-                                        await _audioHandler.seek(Duration(seconds: value.toInt()));
+                                        final newPosition = Duration(seconds: value.toInt());
+                                        await _audioHandler.seek(newPosition);
+                                        _saveCurrentPosition();
                                       }
                                     },
                                   ),
@@ -219,7 +254,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               IconButton(
                                 icon: Icon(Icons.replay_10),
                                 iconSize: 32,
-                                onPressed: () => _audioHandler.skipToPrevious(),
+                                onPressed: () async {
+                                  _audioHandler.skipToPrevious();
+                                  _saveCurrentPosition();
+                                },
                               ),
                               IconButton(
                                 icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
@@ -235,7 +273,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               IconButton(
                                 icon: Icon(Icons.forward_10),
                                 iconSize: 32,
-                                onPressed: () => _audioHandler.skipToNext(),
+                                onPressed: () async {
+                                  _audioHandler.skipToNext();
+                                  _saveCurrentPosition();
+                                },
                               ),
                               IconButton(
                                 icon: Icon(Icons.skip_next),
@@ -294,6 +335,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    // Save current position before disposing
+    _saveCurrentPosition();
+    final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+    playlistProvider.forceSave();
+
     // Clear the callback to prevent memory leaks
     _audioHandler.onTrackCompleted = null;
     super.dispose();

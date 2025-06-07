@@ -17,10 +17,13 @@ Future<void> main() async {
     ),
   );
 
+  final playlistProvider = PlaylistProvider();
+  await playlistProvider.initialize();
+
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (context) => PlaylistProvider()),
+        ChangeNotifierProvider.value(value: playlistProvider),
         Provider.value(value: audioHandler),
       ],
       child: const AudioBookApp(),
