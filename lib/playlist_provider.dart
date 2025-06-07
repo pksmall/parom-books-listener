@@ -63,17 +63,33 @@ class PlaylistProvider extends ChangeNotifier {
 
   void setCurrentIndex(int index) {
     if (index >= 0 && index < _playlist.length) {
+      // Save current position before switching
+      _saveCurrentPositionImmediately();
+
       _currentIndex = index;
       notifyListeners();
       _scheduleSave();
+
+      // Stop old timer and start new one for the new track
+      _positionSaveTimer?.cancel();
+      _positionSaveTimer = null;
+      _ensurePositionSaveTimer();
     }
   }
 
   void nextTrack() {
     if (_currentIndex < _playlist.length - 1) {
+      // Save current position before switching
+      _saveCurrentPositionImmediately();
+
       _currentIndex++;
       notifyListeners();
       _scheduleSave();
+
+      // Stop old timer and start new one for the new track
+      _positionSaveTimer?.cancel();
+      _positionSaveTimer = null;
+      _ensurePositionSaveTimer();
     }
   }
 
@@ -81,13 +97,52 @@ class PlaylistProvider extends ChangeNotifier {
 
   void previousTrack() {
     if (_currentIndex > 0) {
+      // Save current position before switching
+      _saveCurrentPositionImmediately();
+
       _currentIndex--;
       notifyListeners();
       _scheduleSave();
+
+      // Stop old timer and start new one for the new track
+      _positionSaveTimer?.cancel();
+      _positionSaveTimer = null;
+      _ensurePositionSaveTimer();
+    }
+  }
+
+  // Methods to control position saving timer based on playback state
+  void startPositionSaveTimer() {
+    _ensurePositionSaveTimer();
+  }
+
+  void stopPositionSaveTimer() {
+    _positionSaveTimer?.cancel();
+    _positionSaveTimer = null;
+    print("Position save timer stopped");
+  }
+
+  Future<void> forceSave() async {
+    await _savePlaylist();
+    await _saveCurrentPosition();
+  }
+
+  void saveCurrentTrackPosition(Duration position) {
+    if (_playlist.isNotEmpty && currentAudioBook != null) {
+      print('Saving position for track: ${currentAudioBook!.title} to ${position.inMinutes}:${position.inSeconds % 60}');
+      currentAudioBook!.position = position; // Update position in memory
+      _saveTrackPosition(currentAudioBook!.id, position);
     }
   }
 
   void clearPlaylist() {
+    // Save current position before clearing
+    _saveCurrentPositionImmediately();
+
+    // Stop position timer
+    _positionSaveTimer?.cancel();
+    _positionSaveTimer = null;
+
     _playlist.clear();
     _currentIndex = 0;
     notifyListeners();
@@ -98,10 +153,36 @@ class PlaylistProvider extends ChangeNotifier {
     if (_playlist.isNotEmpty && currentAudioBook != null) {
       print('Updating position for track: ${currentAudioBook!.title} to ${position.inMinutes}:${position.inSeconds % 60}');
       currentAudioBook!.position = position;
-      _schedulePositionSave();
+      // Don't restart timer here - it should be managed by play/pause state
     } else {
       print('Cannot update position: playlist empty or no current track');
     }
+  }
+
+  void _ensurePositionSaveTimer() async {
+    final settings = await _settingsService.loadSettings();
+    if (!settings['autoSavePosition']) {
+      _positionSaveTimer?.cancel();
+      _positionSaveTimer = null;
+      return;
+    }
+
+    // If timer is already running, don't create a new one
+    if (_positionSaveTimer != null && _positionSaveTimer!.isActive) {
+      return;
+    }
+
+    final timeoutSeconds = (settings['positionSaveTimeout'] as int);
+    print("Starting periodic position save timer for $timeoutSeconds sec intervals");
+
+    _positionSaveTimer = Timer.periodic(Duration(seconds: timeoutSeconds), (timer) async {
+      try {
+        await _saveCurrentPosition();
+        print("Position saved by periodic timer");
+      } catch (e) {
+        print("Error saving position by periodic timer: $e");
+      }
+    });
   }
 
   Future<Duration> loadTrackPosition(String trackId) async {
@@ -112,13 +193,6 @@ class PlaylistProvider extends ChangeNotifier {
     } catch (e) {
       print('PlaylistProvider: Error loading track position: $e');
       return Duration.zero;
-    }
-  }
-
-  void saveCurrentTrackPosition(Duration position) {
-    if (_playlist.isNotEmpty && currentAudioBook != null) {
-      print('Saving position for track: ${currentAudioBook!.title} to ${position.inMinutes}:${position.inSeconds % 60}');
-      _saveTrackPosition(currentAudioBook!.id, position);
     }
   }
 
@@ -150,7 +224,7 @@ class PlaylistProvider extends ChangeNotifier {
     _positionSaveTimer?.cancel();
 
     // Минимальный порог 1 секунда
-    final timeoutSeconds = (settings['positionSaveTimeout'] as int).clamp(1, 60);
+    final timeoutSeconds = (settings['positionSaveTimeout'] as int);
 
     print("Scheduling position save for $timeoutSeconds sec");
     _positionSaveTimer = Timer(Duration(seconds: timeoutSeconds), () async {
@@ -200,9 +274,20 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> forceSave() async {
-    await _savePlaylist();
-    await _saveCurrentPosition();
+
+  Future<void> _saveCurrentPositionImmediately() async {
+    try {
+      final settings = await _settingsService.loadSettings();
+      if (settings['autoSavePosition'] && currentAudioBook != null) {
+        print('Immediately saving position for: ${currentAudioBook!.title} at ${currentAudioBook!.position.inMinutes}:${currentAudioBook!.position.inSeconds % 60}');
+        await _playlistService.savePosition(
+          currentAudioBook!.id,
+          currentAudioBook!.position,
+        );
+      }
+    } catch (e) {
+      print('Error in immediate position save: $e');
+    }
   }
 
   @override

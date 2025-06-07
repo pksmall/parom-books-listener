@@ -5,7 +5,6 @@ import 'package:audio_service/audio_service.dart';
 import '../playlist_provider.dart';
 import '../widgets/app_menu.dart';
 import '../audio_handler.dart';
-import '../services/playlist_service.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -42,9 +41,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
           isLoading = state.processingState == AudioProcessingState.loading;
         });
 
-        // Save position when pausing
-        if (wasPlaying && !state.playing && !isLoading) {
+        final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+
+        // Manage position save timer based on playback state
+        if (state.playing && !wasPlaying) {
+          // Started playing - start position save timer
+          playlistProvider.startPositionSaveTimer();
+        } else if (!state.playing && wasPlaying && !isLoading) {
+          // Paused - save position immediately and stop timer
           _saveCurrentPosition();
+          playlistProvider.stopPositionSaveTimer();
         }
       }
     });
@@ -170,6 +176,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return Duration.zero;
     }
   }
+
   void _saveCurrentPosition() {
     print('PlayerScreen: Saving current position: ${position.inMinutes}:${position.inSeconds % 60}');
     final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
