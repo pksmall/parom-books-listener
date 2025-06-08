@@ -5,6 +5,7 @@ import 'package:path/path.dart' as path;
 import 'package:just_audio/just_audio.dart';
 import 'dart:io';
 import '../models/loading_progress.dart';
+import '../services/logger_service.dart';
 import 'player_screen.dart';
 import '../models/audio_book.dart';
 import '../playlist_provider.dart';
@@ -50,7 +51,7 @@ class LibraryScreen extends StatelessWidget {
       await player.dispose();
       return duration;
     } catch (e) {
-      print('Error getting duration: $e');
+      logError('_getAudioDuration', 'Error getting duration: ', e);
       return null;
     }
   }
@@ -155,8 +156,8 @@ class LibraryScreen extends StatelessWidget {
         final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
         playlistProvider.addAudioBooks(audioBooks);
 
-        print('LibraryScreen: Added ${audioBooks.length} files to playlist');
-        print('LibraryScreen: Total playlist size: ${playlistProvider.playlist.length}');
+        logDebug('_scanDirectory', 'LibraryScreen: Added ${audioBooks.length} files to playlist');
+        logDebug('_scanDirectory', 'LibraryScreen: Total playlist size: ${playlistProvider.playlist.length}');
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -189,7 +190,7 @@ class LibraryScreen extends StatelessWidget {
       ),
       body: Consumer<PlaylistProvider>(
         builder: (context, playlistProvider, child) {
-          print('LibraryScreen: Building with ${playlistProvider.playlist.length} tracks');
+          logDebug('build', 'LibraryScreen: Building with ${playlistProvider.playlist.length} tracks');
           return Column(
             children: [
               Row(

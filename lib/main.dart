@@ -4,9 +4,17 @@ import 'package:provider/provider.dart';
 import 'screens/library_screen.dart';
 import 'playlist_provider.dart';
 import 'audio_handler.dart';
+import 'services/logger_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize logger service
+  await LoggerService.instance.init(
+    minLogLevel: LogLevel.debug,
+    enableFileLogging: true,
+    enableConsoleLogging: true,
+  );
 
   final audioHandler = await AudioService.init(
     builder: () => AudioPlayerHandler(),

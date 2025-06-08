@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
 import '../playlist_provider.dart';
+import '../services/logger_service.dart';
 import '../widgets/app_menu.dart';
 import '../audio_handler.dart';
 
@@ -163,7 +164,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         isLoading = false;
         errorMessage = e.toString();
       });
-      print('Error loading audio: $e');
+      logError('_loadAudio', 'Error loading audio', e);
     }
   }
 

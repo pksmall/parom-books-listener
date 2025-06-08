@@ -1,5 +1,6 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:parom_books_listener/services/logger_service.dart';
 
 class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   final AudioPlayer _player = AudioPlayer();
@@ -95,7 +96,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         duration: duration,
       ));
     } catch (e) {
-      print("Error setting audio source: $e");
+      logError("setAudioSource", "Error setting audio source: ", e);
     }
   }
 
