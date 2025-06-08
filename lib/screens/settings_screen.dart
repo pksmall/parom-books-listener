@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import '../services/settings_service.dart';
+import '../services/logger_service.dart';
+import '../screens/logs_screen.dart';
 
 class SettingsItem {
   final String title;
@@ -30,6 +32,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool autoSavePosition = true;
   int playlistSaveTimeout = 10;
   int positionSaveTimeout = 5;
+
+  // Добавляем состояния для настроек логирования
+  bool enableFileLogging = true;
+  bool enableConsoleLogging = true;
+  LogLevel minLogLevel = LogLevel.info;
 
   int selectedIndex = 0;
   ThemeMode selectedTheme = ThemeMode.system;
@@ -101,10 +108,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 1:
         return _buildAudioSettings();
       case 2:
+        return _buildLoggingSettings();
+      case 3:
         return const Center(child: Text('Other Settings'));
       default:
         return const SizedBox.shrink();
     }
+  }
+
+  Widget _buildLoggingSettings() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Logging Settings',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 20),
+
+        // Enable file logging
+        SwitchListTile(
+          title: const Text('Enable file logging'),
+          subtitle: const Text('Save logs to file for debugging'),
+          value: enableFileLogging,
+          onChanged: (bool value) {
+            setState(() {
+              enableFileLogging = value;
+            });
+            _saveLoggingSettings();
+          },
+        ),
+
+        // Enable console logging
+        SwitchListTile(
+          title: const Text('Enable console logging'),
+          subtitle: const Text('Print logs to console (debug mode)'),
+          value: enableConsoleLogging,
+          onChanged: (bool value) {
+            setState(() {
+              enableConsoleLogging = value;
+            });
+            _saveLoggingSettings();
+          },
+        ),
+
+        const SizedBox(height: 20),
+
+        // Minimum log level
+        const Text('Minimum log level:'),
+        const SizedBox(height: 8),
+        SegmentedButton<LogLevel>(
+          segments: LogLevel.values.map((level) => ButtonSegment(
+            value: level,
+            label: Text(level.name.toUpperCase()),
+          )).toList(),
+          selected: {minLogLevel},
+          onSelectionChanged: (Set<LogLevel> selection) {
+            setState(() {
+              minLogLevel = selection.first;
+            });
+            _saveLoggingSettings();
+          },
+        ),
+
+        const SizedBox(height: 20),
+      ],
+    );
   }
 
   Widget _buildThemeSettings() {
@@ -297,10 +366,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _settingsService.init();
     final settings = await _settingsService.loadSettings();
     setState(() {
-      autoSavePlaylist = settings['autoSavePlaylist'];
-      autoSavePosition = settings['autoSavePosition'];
-      playlistSaveTimeout = settings['playlistSaveTimeout'];
-      positionSaveTimeout = settings['positionSaveTimeout'];
+      autoSavePlaylist = settings['autoSavePlaylist'] ?? true;
+      autoSavePosition = settings['autoSavePosition'] ?? true;
+      playlistSaveTimeout = settings['playlistSaveTimeout'] ?? 10;
+      positionSaveTimeout = settings['positionSaveTimeout'] ?? 5;
+
+      enableFileLogging = settings['enableFileLogging'] ?? true;
+      enableConsoleLogging = settings['enableConsoleLogging'] ?? true;
+
+      // Parse log level from string
+      final logLevelStr = settings['minLogLevel'] ?? 'INFO';
+      minLogLevel = LogLevel.values.firstWhere(
+            (level) => level.name == logLevelStr,
+        orElse: () => LogLevel.info,
+      );
     });
   }
 
@@ -310,7 +389,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'autoSavePosition': autoSavePosition,
       'playlistSaveTimeout': playlistSaveTimeout,
       'positionSaveTimeout': positionSaveTimeout,
+      'enableFileLogging': enableFileLogging,
+      'enableConsoleLogging': enableConsoleLogging,
+      'minLogLevel': minLogLevel.name,
     });
+  }
+
+  Future<void> _saveLoggingSettings() async {
+    // Update logger settings immediately
+    LoggerService.instance.updateSettings(
+      minLogLevel: minLogLevel,
+      enableFileLogging: enableFileLogging,
+      enableConsoleLogging: enableConsoleLogging,
+    );
+
+    // Save to settings file
+    await _saveSettings();
   }
 
   Future<void> _pickImage() async {
