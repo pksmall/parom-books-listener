@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:io';
-import 'package:path/path.dart' as path;
 import '../services/logger_service.dart';
 
 class LogsScreen extends StatefulWidget {

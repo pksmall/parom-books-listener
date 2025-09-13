@@ -150,7 +150,7 @@ class LoggerService {
       level: level,
       tag: tag,
       message: message,
-      stackTrace: error != null ? error.toString() : null,
+      stackTrace: error?.toString(),
     );
 
     // Add to memory logs
