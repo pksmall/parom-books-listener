@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:path/path.dart' as path;
+import '../services/logger_service.dart';
 import '../models/audio_book.dart';
 
 class FileUtils {
@@ -19,7 +20,7 @@ class FileUtils {
         }
       }
     } catch (e) {
-      print('Error scanning directory: $e');
+      logError('scanDirectory', 'Error scanning directory: ', e);
     }
     return audioBooks;
   }

@@ -1,13 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as path;
+import '../services/logger_service.dart';
 import '../models/audio_book.dart';
 
 class PlaylistService {
   static const String _playlistFileName = 'playlist.json';
   static const String _positionsFileName = 'positions.json';
+  static const String _currentIndexFileName = 'current_index.json';
   late String _playlistFilePath;
   late String _positionsFilePath;
+  late String _currentIndexFilePath;
 
   Future<void> init() async {
     try {
@@ -16,28 +19,30 @@ class PlaylistService {
 
       _playlistFilePath = path.join(dataDir, _playlistFileName);
       _positionsFilePath = path.join(dataDir, _positionsFileName);
+      _currentIndexFilePath = path.join(dataDir, _currentIndexFileName);
 
-      print('PlaylistService init - Data directory: $dataDir');
-      print('PlaylistService init - Playlist file: $_playlistFilePath');
-      print('PlaylistService init - Positions file: $_positionsFilePath');
+      logDebug('init', 'PlaylistService init - Data directory: ', dataDir);
+      logDebug('init', 'PlaylistService init - Playlist file: ', _playlistFilePath);
+      logDebug('init', 'PlaylistService init - Positions file: ', _positionsFilePath);
+      logDebug('init', 'PlaylistService init - Current index file: ', _currentIndexFilePath);
 
       // Create directory if it doesn't exist
       final dir = Directory(path.dirname(_playlistFilePath));
       if (!await dir.exists()) {
         await dir.create(recursive: true);
-        print('PlaylistService init - Created data directory: ${dir.path}');
+        logDebug('init', 'PlaylistService init - Created data directory: ', dir.path);
       } else {
-        print('PlaylistService init - Data directory already exists');
+        logDebug('init', 'PlaylistService init - Data directory already exists');
       }
     } catch (e) {
-      print('Error in PlaylistService.init(): $e');
+      logError('init', 'Error in PlaylistService.init(): ', e);
       rethrow;
     }
   }
 
   Future<void> savePlaylist(List<AudioBook> playlist) async {
     try {
-      print('Saving playlist with ${playlist.length} tracks');
+      logDebug('savePlaylist', 'Saving playlist with ${playlist.length} tracks');
 
       final playlistData = playlist.map((book) => {
         'id': book.id,
@@ -51,36 +56,36 @@ class PlaylistService {
 
       final file = File(_playlistFilePath);
       await file.writeAsString(jsonEncode(playlistData));
-      print('Successfully saved playlist to file: $_playlistFilePath');
+      logDebug('savePlaylist', 'Successfully saved playlist to file: ', _playlistFilePath);
     } catch (e) {
-      print('Error saving playlist: $e');
-      print('Playlist file path: $_playlistFilePath');
+      logError('savePlaylist', 'Error saving playlist: ', e);
+      logError('savePlaylist', 'Playlist file path: ', _playlistFilePath);
     }
   }
 
   Future<List<AudioBook>> loadPlaylist() async {
     try {
-      print('Loading playlist from: $_playlistFilePath');
+      logDebug('loadPlaylist', 'Loading playlist from: $_playlistFilePath');
 
       final file = File(_playlistFilePath);
       if (!await file.exists()) {
-        print('Playlist file does not exist');
+        logDebug('loadPlaylist', 'Playlist file does not exist');
         return [];
       }
 
       final contents = await file.readAsString();
-      print('Playlist file contents length: ${contents.length}');
+      logDebug('loadPlaylist', 'Playlist file contents length: ${contents.length}');
 
       if (contents.trim().isEmpty) {
-        print('Playlist file is empty');
+        logDebug('loadPlaylist', 'Playlist file is empty');
         return [];
       }
 
       final List<dynamic> playlistData = jsonDecode(contents);
-      print('Decoded playlist data: ${playlistData.length} items');
+      logDebug('loadPlaylist', 'Decoded playlist data: ${playlistData.length} items');
 
       final audioBooks = playlistData.map((data) {
-        print('Loading track: ${data['title']} with position: ${data['position'] ?? 0}ms');
+        logDebug('loadPlaylist', 'Loading track: ${data['title']} with position: ${data['position'] ?? 0}ms');
         return AudioBook(
           id: data['id'],
           title: data['title'],
@@ -92,18 +97,55 @@ class PlaylistService {
         );
       }).toList();
 
-      print('Successfully loaded ${audioBooks.length} tracks from playlist');
+      logDebug('loadPlaylist', 'Successfully loaded ${audioBooks.length} tracks from playlist');
       return audioBooks;
     } catch (e) {
-      print('Error loading playlist: $e');
-      print('Playlist file path: $_playlistFilePath');
+      logError('loadPlaylist', 'Error loading playlist: ', e);
+      logError('loadPlaylist', 'Playlist file path: ', _playlistFilePath);
       return [];
+    }
+  }
+
+  Future<void> saveCurrentIndex(int index) async {
+    try {
+      logDebug('saveCurrentIndex', 'Saving current index: $index');
+      final file = File(_currentIndexFilePath);
+      await file.writeAsString(jsonEncode({'currentIndex': index}));
+      logDebug('saveCurrentIndex', 'Successfully saved current index to file: $_currentIndexFilePath');
+    } catch (e) {
+      logDebug('saveCurrentIndex', 'Error saving current index: $e');
+    }
+  }
+
+  Future<int> loadCurrentIndex() async {
+    try {
+      logDebug('loadCurrentIndex', 'Loading current index from: $_currentIndexFilePath');
+
+      final file = File(_currentIndexFilePath);
+      if (!await file.exists()) {
+        logDebug('loadCurrentIndex', 'Current index file does not exist, returning 0');
+        return 0;
+      }
+
+      final contents = await file.readAsString();
+      if (contents.trim().isEmpty) {
+        logDebug('loadCurrentIndex', 'Current index file is empty, returning 0');
+        return 0;
+      }
+
+      final data = jsonDecode(contents);
+      final index = data['currentIndex'] ?? 0;
+      logDebug('loadCurrentIndex', 'Successfully loaded current index: $index');
+      return index;
+    } catch (e) {
+      logError('loadCurrentIndex', 'Error loading current index: ', e);
+      return 0;
     }
   }
 
   Future<void> savePosition(String trackId, Duration position) async {
     try {
-      print('Saving position for track: $trackId, position: ${position.inMinutes}:${position.inSeconds % 60}');
+      logDebug('savePosition', 'Saving position for track: $trackId, position: ${position.inMinutes}:${position.inSeconds % 60}');
 
       Map<String, dynamic> positions = {};
 
@@ -111,92 +153,130 @@ class PlaylistService {
       final file = File(_positionsFilePath);
       if (await file.exists()) {
         final contents = await file.readAsString();
-        positions = jsonDecode(contents);
-        print('Loaded existing positions: ${positions.keys.length} tracks');
+        if (contents.trim().isNotEmpty) {
+          positions = jsonDecode(contents);
+        }
+        logDebug('savePosition', 'Loaded existing positions: ${positions.keys.length} tracks');
       } else {
-        print('Positions file does not exist, creating new one');
+        logDebug('savePosition', 'Positions file does not exist, creating new one');
       }
 
       // Update position for this track
       positions[trackId] = position.inMilliseconds;
-      print('Updated position for $trackId: ${position.inMilliseconds}ms');
+      logDebug('savePosition', 'Updated position for $trackId: ${position.inMilliseconds}ms');
 
       // Save back to file
       await file.writeAsString(jsonEncode(positions));
-      print('Successfully saved positions to file: $_positionsFilePath');
+      logDebug('savePosition', 'Successfully saved positions to file: $_positionsFilePath');
     } catch (e) {
-      print('Error saving position: $e');
-      print('Positions file path: $_positionsFilePath');
+      logError('savePosition', 'Error saving position: ', e);
+      logError('savePosition', 'Positions file path: ', _positionsFilePath);
     }
   }
 
   Future<Duration> loadPosition(String trackId) async {
     try {
-      print('Loading position for track: $trackId');
+      logDebug('loadPosition', 'Loading position for track: ', trackId);
 
       final file = File(_positionsFilePath);
       if (!await file.exists()) {
-        print('Positions file does not exist, returning zero position');
+        logDebug('loadPosition','Positions file does not exist');
         return Duration.zero;
       }
 
       final contents = await file.readAsString();
+      if (contents.trim().isEmpty) {
+        logDebug('loadPosition', 'Positions file is empty');
+        return Duration.zero;
+      }
+
       final Map<String, dynamic> positions = jsonDecode(contents);
+      logDebug('loadPosition', 'Loaded positions for ${positions.keys.length} tracks');
 
-      final milliseconds = positions[trackId] ?? 0;
-      final position = Duration(milliseconds: milliseconds);
-
-      print('Loaded position for $trackId: ${position.inMinutes}:${position.inSeconds % 60}');
-      return position;
+      final positionMs = positions[trackId];
+      if (positionMs != null) {
+        final position = Duration(milliseconds: positionMs);
+        logDebug('loadPosition', 'Found saved position for $trackId: ${position.inMinutes}:${position.inSeconds % 60}');
+        return position;
+      } else {
+        logDebug('loadPosition', 'No saved position found for $trackId');
+        return Duration.zero;
+      }
     } catch (e) {
-      print('Error loading position: $e');
+      logError('loadPosition','Error loading position: ', e);
       return Duration.zero;
     }
   }
 
-  Future<void> saveCurrentIndex(int index) async {
+  // New methods for complete data clearing
+  Future<void> clearAllData() async {
     try {
-      final appDir = Directory.current;
-      final dataDir = path.join(appDir.path, 'data');
-      final indexFile = File(path.join(dataDir, 'current_index.json'));
+      logDebug('clearAllData', 'Clearing all saved data...');
 
-      print('Saving current index: $index to ${indexFile.path}');
+      await _deleteFile(_playlistFilePath, 'playlist');
+      await _deleteFile(_positionsFilePath, 'positions');
+      await _deleteFile(_currentIndexFilePath, 'current index');
 
-      // Убедимся, что директория существует
-      final dir = Directory(dataDir);
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
-
-      await indexFile.writeAsString(jsonEncode({'currentIndex': index}));
-      print('Successfully saved current index: $index');
+      logDebug('clearAllData', 'All saved data cleared successfully');
     } catch (e) {
-      print('Error saving current index: $e');
+      logError('clearAllData', 'Error clearing all data: ', e);
+      rethrow;
     }
   }
 
-  Future<int> loadCurrentIndex() async {
+  Future<void> clearPlaylistData() async {
     try {
-      final appDir = Directory.current;
-      final dataDir = path.join(appDir.path, 'data');
-      final indexFile = File(path.join(dataDir, 'current_index.json'));
+      logDebug('clearPlaylistData', 'Clearing playlist data...');
 
-      print('Loading current index from: ${indexFile.path}');
+      await _deleteFile(_playlistFilePath, 'playlist');
+      await _deleteFile(_currentIndexFilePath, 'current index');
 
-      if (!await indexFile.exists()) {
-        print('Current index file does not exist, returning 0');
-        return 0;
-      }
-
-      final contents = await indexFile.readAsString();
-      final data = jsonDecode(contents);
-      final index = data['currentIndex'] ?? 0;
-
-      print('Loaded current index: $index');
-      return index;
+      logDebug('clearPlaylistData', 'Playlist data cleared successfully');
     } catch (e) {
-      print('Error loading current index: $e');
-      return 0;
+      logError('clearPlaylistData', 'Error clearing playlist data: ', e);
+      rethrow;
+    }
+  }
+
+  Future<void> clearPositionsData() async {
+    try {
+      logDebug('clearPositionsData', 'Clearing positions data...');
+
+      await _deleteFile(_positionsFilePath, 'positions');
+
+      logDebug('clearPositionsData', 'Positions data cleared successfully');
+    } catch (e) {
+      logError('clearPositionsData', 'Error clearing positions data: ', e);
+      rethrow;
+    }
+  }
+
+  Future<void> _deleteFile(String filePath, String fileDescription) async {
+    try {
+      final file = File(filePath);
+      if (await file.exists()) {
+        await file.delete();
+        logDebug('_deleteFile', 'Deleted $fileDescription file: $filePath');
+      } else {
+        logError('_deleteFile', '$fileDescription file does not exist: $filePath');
+      }
+    } catch (e) {
+      logError('_deleteFile', 'Error deleting $fileDescription file: ', e);
+      rethrow;
+    }
+  }
+
+  // Method to check if any saved data exists
+  Future<bool> hasSavedData() async {
+    try {
+      final playlistExists = await File(_playlistFilePath).exists();
+      final positionsExists = await File(_positionsFilePath).exists();
+      final indexExists = await File(_currentIndexFilePath).exists();
+
+      return playlistExists || positionsExists || indexExists;
+    } catch (e) {
+      logError('hasSavedData', 'Error checking for saved data: ', e);
+      return false;
     }
   }
 }

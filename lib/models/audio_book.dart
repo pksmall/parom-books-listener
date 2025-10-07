@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:path/path.dart' as path;
 
 class AudioBook {
@@ -22,7 +21,6 @@ class AudioBook {
 
   // Добавьте фабричный метод для создания из файла
   static Future<AudioBook> fromFile(String filePath) async {
-    final file = File(filePath);
     final fileName = path.basename(filePath);
 
     return AudioBook(

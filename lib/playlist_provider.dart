@@ -13,11 +13,24 @@ class PlaylistProvider extends ChangeNotifier {
   Timer? _saveTimer;
   Timer? _positionSaveTimer;
   bool _isInitialized = false;
+  bool _isNavigating = false; // Флаг для предотвращения множественных вызовов
+
+  // Callback for auto-play when positions are loaded
+  Function(Duration position)? onAutoPlayRequested;
+  bool _shouldAutoPlay = false;
 
   List<AudioBook> get playlist => _playlist;
   int get currentIndex => _currentIndex;
   AudioBook? get currentAudioBook =>
-      _playlist.isNotEmpty ? _playlist[_currentIndex] : null;
+      _playlist.isNotEmpty && _currentIndex >= 0 && _currentIndex < _playlist.length
+          ? _playlist[_currentIndex]
+          : null;
+
+  bool get shouldAutoPlay => _shouldAutoPlay;
+
+  void setAutoPlayCallback(Function(Duration position)? callback) {
+    onAutoPlayRequested = callback;
+  }
 
   Future<void> initialize() async {
     if (_isInitialized) return;
@@ -32,10 +45,67 @@ class PlaylistProvider extends ChangeNotifier {
     if (savedPlaylist.isNotEmpty) {
       _playlist.addAll(savedPlaylist);
       _currentIndex = savedIndex.clamp(0, _playlist.length - 1);
+      logDebug('initialize', 'Loaded playlist with ${_playlist.length} tracks, current index: $_currentIndex');
+
+      // Check if we should auto-play based on saved position
+      await _checkAndRequestAutoPlay();
+
       notifyListeners();
     }
 
     _isInitialized = true;
+  }
+
+  Future<void> _checkAndRequestAutoPlay() async {
+    if (currentAudioBook == null) return;
+
+    try {
+      // Check if there's a saved position for the current track
+      final savedPosition = await loadTrackPosition(currentAudioBook!.id);
+
+      if (savedPosition > Duration.zero) {
+        logInfo('_checkAndRequestAutoPlay', 'Found saved position for current track: ${currentAudioBook!.title} at ${savedPosition.inMinutes}:${savedPosition.inSeconds % 60}');
+
+        // Update the current audio book position
+        currentAudioBook!.position = savedPosition;
+
+        // Set auto-play flag
+        _shouldAutoPlay = true;
+
+        // Trigger auto-play callback if available
+        if (onAutoPlayRequested != null) {
+          logInfo('_checkAndRequestAutoPlay', 'Requesting auto-play at position: ${savedPosition.inMinutes}:${savedPosition.inSeconds % 60}');
+          onAutoPlayRequested!(savedPosition);
+        } else {
+          logDebug('_checkAndRequestAutoPlay', 'Auto-play callback not set, will auto-play when player is ready');
+        }
+      } else {
+        logDebug('_checkAndRequestAutoPlay', 'No saved position found for current track, no auto-play needed');
+      }
+    } catch (e) {
+      logError('_checkAndRequestAutoPlay', 'Error checking for auto-play:', e);
+    }
+  }
+
+  // Method to be called when the media player is ready
+  Future<void> onPlayerReady() async {
+    if (_shouldAutoPlay && currentAudioBook != null) {
+      final position = currentAudioBook!.position;
+      if (position > Duration.zero) {
+        logInfo('onPlayerReady', 'Auto-playing at saved position: ${position.inMinutes}:${position.inSeconds % 60}');
+
+        if (onAutoPlayRequested != null) {
+          onAutoPlayRequested!(position);
+        }
+
+        _shouldAutoPlay = false; // Reset flag after auto-play
+      }
+    }
+  }
+
+  // Reset auto-play flag
+  void resetAutoPlay() {
+    _shouldAutoPlay = false;
   }
 
   void addAudioBooks(List<AudioBook> books) {
@@ -63,7 +133,16 @@ class PlaylistProvider extends ChangeNotifier {
   }
 
   void setCurrentIndex(int index) {
-    if (index >= 0 && index < _playlist.length) {
+    if (_isNavigating) {
+      logDebug('setCurrentIndex', 'Navigation in progress, ignoring request');
+      return;
+    }
+
+    if (index >= 0 && index < _playlist.length && index != _currentIndex) {
+      _isNavigating = true;
+
+      logDebug('setCurrentIndex', 'Changing index from $_currentIndex to $index');
+
       // Save current position before switching
       _saveCurrentPositionImmediately();
 
@@ -75,42 +154,79 @@ class PlaylistProvider extends ChangeNotifier {
       _positionSaveTimer?.cancel();
       _positionSaveTimer = null;
       _ensurePositionSaveTimer();
+
+      _isNavigating = false;
+      logDebug('setCurrentIndex', 'Index changed successfully to $_currentIndex');
+    } else {
+      logDebug('setCurrentIndex', 'Invalid index or same as current: $index (current: $_currentIndex, playlist length: ${_playlist.length})');
     }
   }
 
   void nextTrack() {
-    if (_currentIndex < _playlist.length - 1) {
-      // Save current position before switching
-      _saveCurrentPositionImmediately();
-
-      _currentIndex++;
-      notifyListeners();
-      _scheduleSave();
-
-      // Stop old timer and start new one for the new track
-      _positionSaveTimer?.cancel();
-      _positionSaveTimer = null;
-      _ensurePositionSaveTimer();
+    if (_isNavigating) {
+      logDebug('nextTrack', 'Navigation in progress, ignoring request');
+      return;
     }
+
+    if (!hasNextTrack) {
+      logDebug('nextTrack', 'No next track available (current: $_currentIndex, playlist length: ${_playlist.length})');
+      return;
+    }
+
+    _isNavigating = true;
+    logDebug('nextTrack', 'Moving from track $_currentIndex to ${_currentIndex + 1}');
+
+    // Save current position before switching
+    _saveCurrentPositionImmediately();
+
+    _currentIndex++;
+    logInfo('nextTrack', 'Moved to next track: $_currentIndex/${_playlist.length}');
+
+    notifyListeners();
+    _scheduleSave();
+
+    // Stop old timer and start new one for the new track
+    _positionSaveTimer?.cancel();
+    _positionSaveTimer = null;
+    _ensurePositionSaveTimer();
+
+    _isNavigating = false;
   }
 
   bool get hasNextTrack => _currentIndex < _playlist.length - 1;
 
   void previousTrack() {
-    if (_currentIndex > 0) {
-      // Save current position before switching
-      _saveCurrentPositionImmediately();
-
-      _currentIndex--;
-      notifyListeners();
-      _scheduleSave();
-
-      // Stop old timer and start new one for the new track
-      _positionSaveTimer?.cancel();
-      _positionSaveTimer = null;
-      _ensurePositionSaveTimer();
+    if (_isNavigating) {
+      logDebug('previousTrack', 'Navigation in progress, ignoring request');
+      return;
     }
+
+    if (!hasPreviousTrack) {
+      logDebug('previousTrack', 'No previous track available (current: $_currentIndex)');
+      return;
+    }
+
+    _isNavigating = true;
+    logDebug('previousTrack', 'Moving from track $_currentIndex to ${_currentIndex - 1}');
+
+    // Save current position before switching
+    _saveCurrentPositionImmediately();
+
+    _currentIndex--;
+    logInfo('previousTrack', 'Moved to previous track: $_currentIndex/${_playlist.length}');
+
+    notifyListeners();
+    _scheduleSave();
+
+    // Stop old timer and start new one for the new track
+    _positionSaveTimer?.cancel();
+    _positionSaveTimer = null;
+    _ensurePositionSaveTimer();
+
+    _isNavigating = false;
   }
+
+  bool get hasPreviousTrack => _currentIndex > 0;
 
   // Methods to control position saving timer based on playback state
   void startPositionSaveTimer() {
@@ -136,18 +252,57 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  void clearPlaylist() {
-    // Save current position before clearing
-    _saveCurrentPositionImmediately();
+  // Updated clearPlaylist method with complete data clearing
+  Future<void> clearPlaylist() async {
+    if (_isNavigating) {
+      logDebug('clearPlaylist', 'Navigation in progress, deferring clear');
+      return;
+    }
 
-    // Stop position timer
-    _positionSaveTimer?.cancel();
-    _positionSaveTimer = null;
+    try {
+      logInfo('clearPlaylist', 'Starting complete playlist and history clear');
 
-    _playlist.clear();
-    _currentIndex = 0;
-    notifyListeners();
-    _scheduleSave();
+      // Stop position timer
+      _positionSaveTimer?.cancel();
+      _positionSaveTimer = null;
+
+      // Clear in-memory data
+      _playlist.clear();
+      _currentIndex = 0;
+      _shouldAutoPlay = false; // Reset auto-play flag
+
+      // Clear all saved data files (playlist, positions, current index)
+      await _playlistService.clearAllData();
+
+      logInfo('clearPlaylist', 'Playlist and all history cleared completely');
+      notifyListeners();
+    } catch (e) {
+      logError('clearPlaylist', 'Error clearing playlist and history:', e);
+      // Even if file clearing fails, we still clear the memory
+      notifyListeners();
+    }
+  }
+
+  // Additional method to clear only positions (keep playlist)
+  Future<void> clearAllPositions() async {
+    try {
+      logInfo('clearAllPositions', 'Clearing all track positions');
+
+      // Clear positions in memory
+      for (final book in _playlist) {
+        book.position = Duration.zero;
+      }
+
+      // Clear positions file
+      await _playlistService.clearPositionsData();
+
+      _shouldAutoPlay = false; // Reset auto-play flag
+
+      logInfo('clearAllPositions', 'All positions cleared');
+      notifyListeners();
+    } catch (e) {
+      logError('clearAllPositions', 'Error clearing positions:', e);
+    }
   }
 
   void updateCurrentTrackPosition(Duration position) {
@@ -218,27 +373,6 @@ class PlaylistProvider extends ChangeNotifier {
     });
   }
 
-  void _schedulePositionSave() async {
-    final settings = await _settingsService.loadSettings();
-    if (!settings['autoSavePosition']) return;
-
-    _positionSaveTimer?.cancel();
-
-    // Минимальный порог 1 секунда
-    final timeoutSeconds = (settings['positionSaveTimeout'] as int);
-
-    logDebug("_schedulePositionSave", "Scheduling position save for $timeoutSeconds sec");
-    _positionSaveTimer = Timer(Duration(seconds: timeoutSeconds), () async {
-      // Сохраняем в фоне
-      try {
-        await _saveCurrentPosition();
-        logDebug("_schedulePositionSave", "Position saved in background");
-      } catch (e) {
-        logError("_schedulePositionSave", "Error saving position in background: ", e);
-      }
-    });
-  }
-
   Future<void> _savePlaylist() async {
     try {
       final settings = await _settingsService.loadSettings();
@@ -275,7 +409,6 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-
   Future<void> _saveCurrentPositionImmediately() async {
     try {
       final settings = await _settingsService.loadSettings();
@@ -295,6 +428,7 @@ class PlaylistProvider extends ChangeNotifier {
   void dispose() {
     _saveTimer?.cancel();
     _positionSaveTimer?.cancel();
+    onAutoPlayRequested = null;
     super.dispose();
   }
 }

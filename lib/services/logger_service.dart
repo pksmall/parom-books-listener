@@ -108,7 +108,7 @@ class LoggerService {
       info('Logger', 'Console logging: $_enableConsoleLogging');
 
     } catch (e) {
-      print('Error initializing logger: $e');
+      error('init', 'Error initializing logger: ', e);
       rethrow;
     }
   }
@@ -189,7 +189,7 @@ class LoggerService {
       await _rotateLogsIfNeeded();
     } catch (e) {
       if (_enableConsoleLogging) {
-        print('Error writing to log file: $e');
+        error('_writeToFile', 'Error writing to log file: ', e);
       }
     }
   }
@@ -211,7 +211,7 @@ class LoggerService {
       }
     } catch (e) {
       if (_enableConsoleLogging) {
-        print('Error rotating log files: $e');
+        error('_rotateLogsIfNeeded', 'Error rotating log files: ', e);
       }
     }
   }

@@ -105,9 +105,4 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     await _player.stop();
     await super.stop();
   }
-
-  @override
-  Future<void> dispose() async {
-    await _player.dispose();
-  }
 }
