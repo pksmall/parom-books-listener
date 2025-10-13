@@ -8,7 +8,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   Duration? get duration => _player.duration;
 
+  // Добавленные геттеры
   Stream<Duration> get positionStream => _player.positionStream;
+  Stream<Duration?> get durationStream => _player.durationStream;
+  Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
   AudioPlayerHandler() {
     _player.playbackEventStream.listen((PlaybackEvent event) {

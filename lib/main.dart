@@ -42,25 +42,22 @@ Future<void> main() async{
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
-      ],
-      child: MaterialApp(
-        title: 'Parom Books Listener',
-        theme: ThemeData(
-          primarySwatch: Colors.blue,
-        ),
-        home: StartupScreen(),
-        debugShowCheckedModeBanner: false,
-      ),
+    return MaterialApp(
+      title: 'Parom Books Listener',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: StartupScreen(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
 class StartupScreen extends StatefulWidget {
+  const StartupScreen({super.key});
+
   @override
   _StartupScreenState createState() => _StartupScreenState();
 }

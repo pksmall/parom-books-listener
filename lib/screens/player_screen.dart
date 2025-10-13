@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:just_audio/just_audio.dart'; // <-- Добавлено
 import '../playlist_provider.dart';
 import '../services/logger_service.dart';
 import '../widgets/app_menu.dart';
+import '../audio_handler.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -16,7 +16,6 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver {
-  AudioPlayer? _audioPlayer;
   Duration position = Duration.zero;
   Duration? duration;
   bool isPlaying = false;
@@ -25,44 +24,34 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   bool _isOperationInProgress = false;
   bool _isDisposed = false;
 
-  // Debouncing для предотвращения частых обновлений
   Timer? _positionDebounceTimer;
   Timer? _stateDebounceTimer;
 
-  // Stream subscriptions
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration?>? _durationSubscription;
-  StreamSubscription<bool>? _playingSubscription;
   StreamSubscription<PlayerState>? _playerStateSubscription;
+
+  AudioPlayerHandler get _audioHandler => Provider.of<AudioPlayerHandler>(context, listen: false);
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _initializeAudioPlayer();
+    _initializeAudioHandler();
   }
 
-  Future<void> _initializeAudioPlayer() async {
+  Future<void> _initializeAudioHandler() async {
     if (_isDisposed) return;
 
     try {
-      // Простая инициализация AudioPlayer без дополнительных параметров
-      _audioPlayer = AudioPlayer();
-
-      if (Platform.isWindows) {
-        // Задержка для Windows для стабильности
-        await Future.delayed(Duration(milliseconds: 500));
-      }
-
       await _setupStreamListeners();
       await _loadAudio();
-
-      logDebug('_initializeAudioPlayer', 'Audio player initialized successfully');
+      logDebug('_initializeAudioHandler', 'Audio handler initialized successfully');
     } catch (e) {
-      logError('_initializeAudioPlayer', 'Failed to initialize audio player', e);
+      logError('_initializeAudioHandler', 'Failed to init audio handler', e);
       if (mounted && !_isDisposed) {
         setState(() {
-          errorMessage = 'Failed to initialize audio player: $e';
+          errorMessage = 'Failed to init audio handler: $e';
           _isOperationInProgress = false;
         });
       }
@@ -70,20 +59,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Future<void> _setupStreamListeners() async {
-    if (_audioPlayer == null || _isDisposed) return;
+    if (_isDisposed) return;
 
     try {
-      // Position stream with debouncing
-      _positionSubscription = _audioPlayer!.positionStream.listen(
+      _positionSubscription = _audioHandler.positionStream.listen(
             (newPosition) {
           if (!_isDisposed && mounted) {
             _positionDebounceTimer?.cancel();
-            _positionDebounceTimer = Timer(Duration(milliseconds: 100), () {
+            _positionDebounceTimer = Timer(const Duration(milliseconds: 100), () {
               if (!_isDisposed && mounted) {
                 try {
-                  setState(() {
-                    position = newPosition;
-                  });
+                  setState(() => position = newPosition);
                   _saveCurrentPosition();
                 } catch (e) {
                   logError('_setupStreamListeners', 'Position update error', e);
@@ -92,68 +78,46 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             });
           }
         },
-        onError: (error) {
-          logError('_setupStreamListeners', 'Position stream error (ignored)', error);
-        },
+        onError: (error) => logError('_setupStreamListeners', 'Position stream error (ignored)', error),
       );
 
-      // Duration stream
-      _durationSubscription = _audioPlayer!.durationStream.listen(
+      _durationSubscription = _audioHandler.durationStream.listen(
             (newDuration) {
           if (!_isDisposed && mounted && newDuration != null) {
-            setState(() {
-              duration = newDuration;
-            });
+            setState(() => duration = newDuration);
           }
         },
-        onError: (error) {
-          logError('_setupStreamListeners', 'Duration stream error (ignored)', error);
-        },
+        onError: (error) => logError('_setupStreamListeners', 'Duration stream error (ignored)', error),
       );
 
-      // Playing stream
-      _playingSubscription = _audioPlayer!.playingStream.listen(
-            (playing) {
-          if (!_isDisposed && mounted) {
-            _stateDebounceTimer?.cancel();
-            _stateDebounceTimer = Timer(Duration(milliseconds: 50), () {
-              if (!_isDisposed && mounted) {
-                try {
-                  setState(() {
-                    isPlaying = playing;
-                  });
-                } catch (e) {
-                  logError('_setupStreamListeners', 'Playing update error', e);
-                }
-              }
-            });
-          }
-        },
-        onError: (error) {
-          logError('_setupStreamListeners', 'Playing stream error (ignored)', error);
-        },
-      );
-
-      // Player state stream
-      _playerStateSubscription = _audioPlayer!.playerStateStream.listen(
+      _playerStateSubscription = _audioHandler.playerStateStream.listen(
             (playerState) {
           if (!_isDisposed && mounted) {
             try {
-              // Handle track completion
               if (playerState.processingState == ProcessingState.completed) {
                 _handleTrackCompletion();
               }
 
-              // Handle loading state
               final newLoading = playerState.processingState == ProcessingState.loading ||
                   playerState.processingState == ProcessingState.buffering;
 
               if (isLoading != newLoading) {
                 setState(() {
                   isLoading = newLoading;
-                  // Разблокируем операции после загрузки
-                  if (!newLoading) {
-                    _isOperationInProgress = false;
+                  if (!newLoading) _isOperationInProgress = false;
+                });
+              }
+
+              final newPlaying = playerState.playing;
+              if (isPlaying != newPlaying) {
+                _stateDebounceTimer?.cancel();
+                _stateDebounceTimer = Timer(const Duration(milliseconds: 50), () {
+                  if (!_isDisposed && mounted) {
+                    try {
+                      setState(() => isPlaying = newPlaying);
+                    } catch (e) {
+                      logError('_setupStreamListeners', 'Playing update error', e);
+                    }
                   }
                 });
               }
@@ -162,13 +126,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
             }
           }
         },
-        onError: (error) {
-          logError('_setupStreamListeners', 'Player state stream error (ignored)', error);
-        },
+        onError: (error) => logError('_setupStreamListeners', 'Player state stream error (ignored)', error),
       );
-
     } catch (e) {
-      logError('_setupStreamListeners', 'Error setting up stream listeners', e);
+      logError('_setupStreamListeners', 'Error setting up listeners', e);
     }
   }
 
@@ -179,13 +140,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       logInfo('_handleTrackCompletion', 'Track completed, checking for next track');
 
       final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-
       if (playlistProvider.hasNextTrack) {
-        logInfo('_handleTrackCompletion', 'Moving to next track');
         playlistProvider.nextTrack();
         await _loadAudio(shouldAutoplay: true);
       } else {
-        logInfo('_handleTrackCompletion', 'Reached end of playlist, stopping');
         if (mounted && !_isDisposed) {
           setState(() {
             isPlaying = false;
@@ -196,142 +154,83 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     } catch (e) {
       logError('_handleTrackCompletion', 'Error handling track completion', e);
       if (mounted && !_isDisposed) {
-        setState(() {
-          _isOperationInProgress = false;
-        });
+        setState(() => _isOperationInProgress = false);
       }
     }
   }
 
   Future<void> _loadAudio({bool shouldAutoplay = false}) async {
-    if (_isDisposed || _audioPlayer == null) return;
+    if (_isDisposed) return;
 
     try {
       _isOperationInProgress = true;
-
-      // Stop current playback with error handling
-      try {
-        await _audioPlayer!.stop();
-      } catch (e) {
-        logError('_loadAudio', 'Error stopping audio player (ignored)', e);
-      }
-
-      if (mounted && !_isDisposed) {
-        setState(() {
-          isLoading = true;
-          errorMessage = null;
-        });
-      }
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
 
       final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
       final currentBook = playlistProvider.currentAudioBook;
 
       if (currentBook == null) {
-        if (mounted && !_isDisposed) {
-          setState(() {
-            errorMessage = 'No audio file selected';
-            isLoading = false;
-            _isOperationInProgress = false;
-          });
-        }
+        setState(() {
+          errorMessage = 'No audio file selected';
+          isLoading = false;
+          _isOperationInProgress = false;
+        });
         return;
       }
 
       logInfo('_loadAudio', 'Loading audio: ${currentBook.title}, shouldAutoplay: $shouldAutoplay');
 
-      // Load saved position
       final savedPosition = await _loadTrackPosition(currentBook.id);
 
-      // Stabilization delay for Windows
-      if (Platform.isWindows) {
-        await Future.delayed(Duration(milliseconds: 200));
-      }
+      await _audioHandler.setAudioSource(currentBook.audioUrl);
 
-      try {
-        // Set audio source with Windows-specific handling
-        await _audioPlayer!.setAudioSource(
-          AudioSource.uri(Uri.parse(currentBook.audioUrl)),
-          preload: true,
-        );
-
-      } catch (e) {
-        if (mounted && !_isDisposed) {
-          setState(() {
-            errorMessage = 'Failed to load audio: ${e.toString()}';
-            isLoading = false;
-            _isOperationInProgress = false;
-          });
-        }
-        logError('_loadAudio', 'Error setting audio source', e);
-        return;
-      }
-
-      // Wait for duration to be available
-      Duration? audioDuration = _audioPlayer!.duration;
+      Duration? audioDuration = _audioHandler.duration;
       if (audioDuration == null) {
         for (int i = 0; i < 10 && audioDuration == null && !_isDisposed; i++) {
-          await Future.delayed(Duration(milliseconds: 100));
-          audioDuration = _audioPlayer!.duration;
+          await Future.delayed(const Duration(milliseconds: 100));
+          audioDuration = _audioHandler.duration;
         }
       }
 
-      if (mounted && !_isDisposed) {
-        if (audioDuration != null) {
-          setState(() {
-            duration = audioDuration;
-            position = savedPosition;
-            isLoading = false;
-          });
+      if (audioDuration != null) {
+        setState(() {
+          duration = audioDuration;
+          position = savedPosition;
+          isLoading = false;
+        });
 
-          // Seek to saved position if valid
-          if (savedPosition > Duration.zero && savedPosition < audioDuration) {
-            try {
-              await _audioPlayer!.seek(savedPosition);
-              logInfo('_loadAudio', 'Seeked to saved position: ${savedPosition.inMinutes}:${savedPosition.inSeconds % 60}');
-            } catch (e) {
-              logError('_loadAudio', 'Error seeking to saved position (ignored)', e);
-            }
-          }
-
-          // Auto-play if requested
-          if (shouldAutoplay) {
-            try {
-              await _audioPlayer!.play();
-              logInfo('_loadAudio', 'Started auto-play');
-            } catch (e) {
-              logError('_loadAudio', 'Error starting auto-play (ignored)', e);
-            }
-          }
-        } else {
-          setState(() {
-            errorMessage = 'Failed to get audio duration';
-            isLoading = false;
-          });
+        if (savedPosition > Duration.zero && savedPosition < audioDuration) {
+          await _audioHandler.seek(savedPosition);
+          logInfo('_loadAudio', 'Seeked to saved position: ${savedPosition.inMinutes}:${savedPosition.inSeconds % 60}');
         }
 
-        // Разблокируем операции после завершения загрузки
+        if (shouldAutoplay) {
+          await _audioHandler.play();
+          logInfo('_loadAudio', 'Started auto-play');
+        }
+      } else {
         setState(() {
-          _isOperationInProgress = false;
+          errorMessage = 'Failed to get audio duration';
+          isLoading = false;
         });
       }
 
-      logInfo('_loadAudio', 'Audio loaded successfully');
-
+      setState(() => _isOperationInProgress = false);
     } catch (e) {
       logError('_loadAudio', 'Error loading audio', e);
       if (mounted && !_isDisposed) {
         setState(() {
-          errorMessage = 'Error loading audio: ${e.toString()}';
+          errorMessage = 'Error loading audio: $e';
           isLoading = false;
           _isOperationInProgress = false;
         });
       }
     } finally {
-      // Гарантированно разблокируем операции
       if (mounted && !_isDisposed) {
-        setState(() {
-          _isOperationInProgress = false;
-        });
+        setState(() => _isOperationInProgress = false);
       }
     }
   }
@@ -348,7 +247,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   void _saveCurrentPosition() {
     if (_isDisposed) return;
-
     try {
       final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
       playlistProvider.updateCurrentTrackPosition(position);
@@ -358,92 +256,66 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   }
 
   Future<void> _skipBackward() async {
-    if (_isOperationInProgress || _audioPlayer == null || _isDisposed) return;
-
-    try {
-      final newPosition = Duration(seconds: (position.inSeconds - 10).clamp(0, duration?.inSeconds ?? 0));
-      await _audioPlayer!.seek(newPosition);
-      _saveCurrentPosition();
-    } catch (e) {
-      logError('_skipBackward', 'Error skipping backward (ignored)', e);
-    }
+    if (_isOperationInProgress || _isDisposed) return;
+    final newPos = Duration(seconds: (position.inSeconds - 10).clamp(0, duration?.inSeconds ?? 0));
+    await _audioHandler.seek(newPos);
+    _saveCurrentPosition();
   }
 
   Future<void> _skipForward() async {
-    if (_isOperationInProgress || _audioPlayer == null || _isDisposed) return;
-
-    try {
-      final newPosition = Duration(seconds: (position.inSeconds + 10).clamp(0, duration?.inSeconds ?? 0));
-      await _audioPlayer!.seek(newPosition);
-      _saveCurrentPosition();
-    } catch (e) {
-      logError('_skipForward', 'Error skipping forward (ignored)', e);
-    }
+    if (_isOperationInProgress || _isDisposed) return;
+    final newPos = Duration(seconds: (position.inSeconds + 10).clamp(0, duration?.inSeconds ?? 0));
+    await _audioHandler.seek(newPos);
+    _saveCurrentPosition();
   }
 
   void _goToPreviousTrack() {
     if (_isOperationInProgress || _isDisposed) return;
-
-    try {
-      final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-
-      if (playlistProvider.hasPreviousTrack) {
-        final wasPlaying = isPlaying;
-        playlistProvider.previousTrack();
-        _loadAudio(shouldAutoplay: wasPlaying);
-      }
-    } catch (e) {
-      logError('_goToPreviousTrack', 'Error going to previous track', e);
+    final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+    if (playlistProvider.hasPreviousTrack) {
+      final wasPlaying = isPlaying;
+      playlistProvider.previousTrack();
+      _loadAudio(shouldAutoplay: wasPlaying);
     }
   }
 
   void _goToNextTrack() {
     if (_isOperationInProgress || _isDisposed) return;
-
-    try {
-      final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-
-      if (playlistProvider.hasNextTrack) {
-        final wasPlaying = isPlaying;
-        playlistProvider.nextTrack();
-        _loadAudio(shouldAutoplay: wasPlaying);
-      }
-    } catch (e) {
-      logError('_goToNextTrack', 'Error going to next track', e);
+    final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
+    if (playlistProvider.hasNextTrack) {
+      final wasPlaying = isPlaying;
+      playlistProvider.nextTrack();
+      _loadAudio(shouldAutoplay: wasPlaying);
     }
   }
 
   Future<void> _togglePlayPause() async {
-    if (_isOperationInProgress || _audioPlayer == null || _isDisposed) return;
-
+    if (_isOperationInProgress || _isDisposed) return;
     try {
       if (isPlaying) {
-        await _audioPlayer!.pause();
+        await _audioHandler.pause();
       } else {
-        await _audioPlayer!.play();
+        await _audioHandler.play();
       }
     } catch (e) {
       logError('_togglePlayPause', 'Error toggling play/pause', e);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Audio error: ${e.toString()}')),
+          SnackBar(content: Text('Audio error: $e')),
         );
       }
     }
   }
 
-  String _formatDuration(Duration? duration) {
-    if (duration == null) return '--:--';
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(duration.inMinutes);
-    final seconds = twoDigits(duration.inSeconds % 60);
-    return '$minutes:$seconds';
+  String _formatDuration(Duration? d) {
+    if (d == null) return '--:--';
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.inMinutes)}:${two(d.inSeconds % 60)}';
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-
     if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
       _saveCurrentPosition();
     }
@@ -453,34 +325,31 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Audio Player'),
-        actions: [
-          AppMenu(),
-        ],
+        title: const Text('Audio Player'),
+        actions: const [AppMenu()],
       ),
       body: Column(
         children: [
-          // Top section with player
           Container(
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             child: Column(
               children: [
                 if (isLoading)
-                  CircularProgressIndicator()
+                  const CircularProgressIndicator()
                 else if (errorMessage != null)
                   Column(
                     children: [
-                      Icon(Icons.error_outline, size: 48, color: Colors.red),
-                      SizedBox(height: 8),
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 8),
                       Text(
                         'Error: $errorMessage',
-                        style: TextStyle(color: Colors.red),
+                        style: const TextStyle(color: Colors.red),
                         textAlign: TextAlign.center,
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       ElevatedButton(
                         onPressed: () => _loadAudio(),
-                        child: Text('Retry'),
+                        child: const Text('Retry'),
                       ),
                     ],
                   )
@@ -495,7 +364,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                             style: Theme.of(context).textTheme.titleLarge,
                             textAlign: TextAlign.center,
                           ),
-                          SizedBox(height: 20),
+                          const SizedBox(height: 20),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
@@ -516,14 +385,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                     }
                                   },
                                   onChangeEnd: (value) async {
-                                    if (duration != null && !_isOperationInProgress && !_isDisposed && _audioPlayer != null) {
-                                      try {
-                                        final newPosition = Duration(seconds: value.toInt());
-                                        await _audioPlayer!.seek(newPosition);
-                                        _saveCurrentPosition();
-                                      } catch (e) {
-                                        logError('Slider', 'Error seeking (ignored)', e);
-                                      }
+                                    if (duration != null && !_isOperationInProgress && !_isDisposed) {
+                                      final newPos = Duration(seconds: value.toInt());
+                                      await _audioHandler.seek(newPos);
+                                      _saveCurrentPosition();
                                     }
                                   },
                                 ),
@@ -535,13 +400,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               IconButton(
-                                icon: Icon(Icons.skip_previous),
+                                icon: const Icon(Icons.skip_previous),
                                 iconSize: 32,
                                 onPressed: (playlistProvider.hasPreviousTrack && !_isOperationInProgress && !_isDisposed)
-                                    ? _goToPreviousTrack : null,
+                                    ? _goToPreviousTrack
+                                    : null,
                               ),
                               IconButton(
-                                icon: Icon(Icons.replay_10),
+                                icon: const Icon(Icons.replay_10),
                                 iconSize: 32,
                                 onPressed: (!_isOperationInProgress && !_isDisposed) ? _skipBackward : null,
                               ),
@@ -551,15 +417,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                                 onPressed: (!_isOperationInProgress && !_isDisposed) ? _togglePlayPause : null,
                               ),
                               IconButton(
-                                icon: Icon(Icons.forward_10),
+                                icon: const Icon(Icons.forward_10),
                                 iconSize: 32,
                                 onPressed: (!_isOperationInProgress && !_isDisposed) ? _skipForward : null,
                               ),
                               IconButton(
-                                icon: Icon(Icons.skip_next),
+                                icon: const Icon(Icons.skip_next),
                                 iconSize: 32,
                                 onPressed: (playlistProvider.hasNextTrack && !_isOperationInProgress && !_isDisposed)
-                                    ? _goToNextTrack : null,
+                                    ? _goToNextTrack
+                                    : null,
                               ),
                             ],
                           ),
@@ -570,8 +437,6 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
               ],
             ),
           ),
-
-          // Bottom section with track list
           Expanded(
             child: Consumer<PlaylistProvider>(
               builder: (context, playlistProvider, child) {
@@ -591,17 +456,13 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                       ),
                       trailing: Text(_formatDuration(audioBook.duration)),
                       leading: isCurrentTrack
-                          ? Icon(Icons.play_arrow, color: Theme.of(context).primaryColor)
+                          ? const Icon(Icons.play_arrow, color: Colors.blue)
                           : null,
                       onTap: () {
                         if (!_isOperationInProgress && !_isDisposed) {
-                          try {
-                            final wasPlaying = isPlaying;
-                            playlistProvider.setCurrentIndex(index);
-                            _loadAudio(shouldAutoplay: wasPlaying);
-                          } catch (e) {
-                            logError('Track tap', 'Error switching track', e);
-                          }
+                          final wasPlaying = isPlaying;
+                          playlistProvider.setCurrentIndex(index);
+                          _loadAudio(shouldAutoplay: wasPlaying);
                         }
                       },
                     );
@@ -620,27 +481,14 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
 
-    // Cancel timers
     _positionDebounceTimer?.cancel();
     _stateDebounceTimer?.cancel();
 
-    // Save current position before disposing
     _saveCurrentPosition();
 
-    // Cancel stream subscriptions
     _positionSubscription?.cancel();
     _durationSubscription?.cancel();
-    _playingSubscription?.cancel();
     _playerStateSubscription?.cancel();
-
-    // Dispose audio player with error handling
-    if (_audioPlayer != null) {
-      try {
-        _audioPlayer!.dispose();
-      } catch (e) {
-        logError('dispose', 'Error disposing audio player (ignored)', e);
-      }
-    }
 
     try {
       final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
