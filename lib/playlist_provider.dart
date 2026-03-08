@@ -4,6 +4,8 @@ import 'models/audio_book.dart';
 import 'services/playlist_service.dart';
 import 'services/settings_service.dart';
 import 'dart:async';
+import 'package:parom_books_listener/audio_handler.dart';
+
 
 class PlaylistProvider extends ChangeNotifier {
   final List<AudioBook> _playlist = [];
@@ -14,6 +16,31 @@ class PlaylistProvider extends ChangeNotifier {
   Timer? _positionSaveTimer;
   bool _isInitialized = false;
   bool _isNavigating = false; // Флаг для предотвращения множественных вызовов
+  
+  // Audio Handler reference
+  AudioPlayerHandler? _audioHandler;
+
+  void setAudioHandler(AudioPlayerHandler handler) {
+    _audioHandler = handler;
+    
+    // Register callbacks
+    _audioHandler?.onSkipToNext = () {
+      logDebug('PlaylistProvider', 'AudioHandler requested skipToNext');
+      nextTrack();
+    };
+    
+    _audioHandler?.onSkipToPrevious = () {
+      logDebug('PlaylistProvider', 'AudioHandler requested skipToPrevious');
+      previousTrack();
+    };
+    
+    _audioHandler?.onTrackCompleted = () {
+      logDebug('PlaylistProvider', 'AudioHandler reported track completion');
+      if (hasNextTrack) {
+        nextTrack();
+      }
+    };
+  }
 
   // Callback for auto-play when positions are loaded
   Function(Duration position)? onAutoPlayRequested;
@@ -132,7 +159,7 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  void setCurrentIndex(int index) {
+  Future<void> setCurrentIndex(int index) async {
     if (_isNavigating) {
       logDebug('setCurrentIndex', 'Navigation in progress, ignoring request');
       return;
@@ -144,7 +171,7 @@ class PlaylistProvider extends ChangeNotifier {
       logDebug('setCurrentIndex', 'Changing index from $_currentIndex to $index');
 
       // Save current position before switching
-      _saveCurrentPositionImmediately();
+      await _saveCurrentPositionImmediately();
 
       _currentIndex = index;
       notifyListeners();
@@ -154,6 +181,9 @@ class PlaylistProvider extends ChangeNotifier {
       _positionSaveTimer?.cancel();
       _positionSaveTimer = null;
       _ensurePositionSaveTimer();
+      
+      // Play the new track
+      await _playCurrentTrack();
 
       _isNavigating = false;
       logDebug('setCurrentIndex', 'Index changed successfully to $_currentIndex');
@@ -162,7 +192,7 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
-  void nextTrack() {
+  Future<void> nextTrack() async {
     if (_isNavigating) {
       logDebug('nextTrack', 'Navigation in progress, ignoring request');
       return;
@@ -177,7 +207,7 @@ class PlaylistProvider extends ChangeNotifier {
     logDebug('nextTrack', 'Moving from track $_currentIndex to ${_currentIndex + 1}');
 
     // Save current position before switching
-    _saveCurrentPositionImmediately();
+    await _saveCurrentPositionImmediately();
 
     _currentIndex++;
     logInfo('nextTrack', 'Moved to next track: $_currentIndex/${_playlist.length}');
@@ -189,13 +219,16 @@ class PlaylistProvider extends ChangeNotifier {
     _positionSaveTimer?.cancel();
     _positionSaveTimer = null;
     _ensurePositionSaveTimer();
+    
+    // Play the new track
+    await _playCurrentTrack();
 
     _isNavigating = false;
   }
 
   bool get hasNextTrack => _currentIndex < _playlist.length - 1;
 
-  void previousTrack() {
+  Future<void> previousTrack() async {
     if (_isNavigating) {
       logDebug('previousTrack', 'Navigation in progress, ignoring request');
       return;
@@ -210,7 +243,7 @@ class PlaylistProvider extends ChangeNotifier {
     logDebug('previousTrack', 'Moving from track $_currentIndex to ${_currentIndex - 1}');
 
     // Save current position before switching
-    _saveCurrentPositionImmediately();
+    await _saveCurrentPositionImmediately();
 
     _currentIndex--;
     logInfo('previousTrack', 'Moved to previous track: $_currentIndex/${_playlist.length}');
@@ -222,6 +255,9 @@ class PlaylistProvider extends ChangeNotifier {
     _positionSaveTimer?.cancel();
     _positionSaveTimer = null;
     _ensurePositionSaveTimer();
+    
+    // Play the new track
+    await _playCurrentTrack();
 
     _isNavigating = false;
   }
@@ -421,6 +457,29 @@ class PlaylistProvider extends ChangeNotifier {
       }
     } catch (e) {
       logError('_saveCurrentPositionImmediately', 'Error in immediate position save: ', e);
+    }
+  }
+
+  Future<void> _playCurrentTrack() async {
+    if (_audioHandler == null || currentAudioBook == null) return;
+
+    try {
+      final book = currentAudioBook!;
+      logInfo('_playCurrentTrack', 'Playing track: ${book.title}');
+      
+      // Load saved position
+      final savedPosition = await loadTrackPosition(book.id);
+      book.position = savedPosition;
+
+      await _audioHandler!.setAudioSource(book.audioUrl);
+      
+      if (savedPosition > Duration.zero) {
+        await _audioHandler!.seek(savedPosition);
+      }
+      
+      await _audioHandler!.play();
+    } catch (e) {
+      logError('_playCurrentTrack', 'Error playing track', e);
     }
   }
 

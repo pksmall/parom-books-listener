@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:just_audio/just_audio.dart'; // <-- Добавлено
+import 'package:audio_service/audio_service.dart';
 import '../playlist_provider.dart';
 import '../services/logger_service.dart';
 import '../widgets/app_menu.dart';
@@ -24,12 +24,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
   bool _isOperationInProgress = false;
   bool _isDisposed = false;
 
-  Timer? _positionDebounceTimer;
+  Timer? _positionPollingTimer;
   Timer? _stateDebounceTimer;
 
   StreamSubscription<Duration>? _positionSubscription;
   StreamSubscription<Duration?>? _durationSubscription;
-  StreamSubscription<PlayerState>? _playerStateSubscription;
+  StreamSubscription<PlaybackState>? _playerStateSubscription;
 
   AudioPlayerHandler get _audioHandler => Provider.of<AudioPlayerHandler>(context, listen: false);
 
@@ -62,24 +62,10 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (_isDisposed) return;
 
     try {
-      _positionSubscription = _audioHandler.positionStream.listen(
-            (newPosition) {
-          if (!_isDisposed && mounted) {
-            _positionDebounceTimer?.cancel();
-            _positionDebounceTimer = Timer(const Duration(milliseconds: 100), () {
-              if (!_isDisposed && mounted) {
-                try {
-                  setState(() => position = newPosition);
-                  _saveCurrentPosition();
-                } catch (e) {
-                  logError('_setupStreamListeners', 'Position update error', e);
-                }
-              }
-            });
-          }
-        },
-        onError: (error) => logError('_setupStreamListeners', 'Position stream error (ignored)', error),
-      );
+      // NOTE: We do NOT subscribe to positionStream because
+      // audioplayers' onPositionChanged is unreliable on Windows
+      // (events sent from non-platform thread). Instead, we poll
+      // getCurrentPosition() in _startPositionPolling().
 
       _durationSubscription = _audioHandler.durationStream.listen(
             (newDuration) {
@@ -90,16 +76,16 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
         onError: (error) => logError('_setupStreamListeners', 'Duration stream error (ignored)', error),
       );
 
-      _playerStateSubscription = _audioHandler.playerStateStream.listen(
-            (playerState) {
+      _playerStateSubscription = _audioHandler.playbackState.listen(
+            (playbackState) {
           if (!_isDisposed && mounted) {
             try {
-              if (playerState.processingState == ProcessingState.completed) {
+              if (playbackState.processingState == AudioProcessingState.completed) {
                 _handleTrackCompletion();
               }
 
-              final newLoading = playerState.processingState == ProcessingState.loading ||
-                  playerState.processingState == ProcessingState.buffering;
+              final newLoading = playbackState.processingState == AudioProcessingState.loading ||
+                  playbackState.processingState == AudioProcessingState.buffering;
 
               if (isLoading != newLoading) {
                 setState(() {
@@ -108,18 +94,20 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                 });
               }
 
-              final newPlaying = playerState.playing;
+              final newPlaying = playbackState.playing;
               if (isPlaying != newPlaying) {
-                _stateDebounceTimer?.cancel();
-                _stateDebounceTimer = Timer(const Duration(milliseconds: 50), () {
-                  if (!_isDisposed && mounted) {
-                    try {
-                      setState(() => isPlaying = newPlaying);
-                    } catch (e) {
-                      logError('_setupStreamListeners', 'Playing update error', e);
+                if (!_isDisposed && mounted) {
+                  try {
+                    setState(() => isPlaying = newPlaying);
+                    if (newPlaying) {
+                      _startPositionPolling();
+                    } else {
+                      _stopPositionPolling();
                     }
+                  } catch (e) {
+                    logError('_setupStreamListeners', 'Playing update error', e);
                   }
-                });
+                }
               }
             } catch (e) {
               logError('_setupStreamListeners', 'Player state update error', e);
@@ -133,30 +121,9 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
   }
 
-  void _handleTrackCompletion() async {
-    if (_isDisposed || _isOperationInProgress) return;
-
-    try {
-      logInfo('_handleTrackCompletion', 'Track completed, checking for next track');
-
-      final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
-      if (playlistProvider.hasNextTrack) {
-        playlistProvider.nextTrack();
-        await _loadAudio(shouldAutoplay: true);
-      } else {
-        if (mounted && !_isDisposed) {
-          setState(() {
-            isPlaying = false;
-            _isOperationInProgress = false;
-          });
-        }
-      }
-    } catch (e) {
-      logError('_handleTrackCompletion', 'Error handling track completion', e);
-      if (mounted && !_isDisposed) {
-        setState(() => _isOperationInProgress = false);
-      }
-    }
+  // Track completion is now handled by PlaylistProvider via AudioHandler callbacks
+  void _handleTrackCompletion() {
+    // UI update if needed, but logic is in Provider
   }
 
   Future<void> _loadAudio({bool shouldAutoplay = false}) async {
@@ -257,15 +224,24 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
 
   Future<void> _skipBackward() async {
     if (_isOperationInProgress || _isDisposed) return;
-    final newPos = Duration(seconds: (position.inSeconds - 10).clamp(0, duration?.inSeconds ?? 0));
-    await _audioHandler.seek(newPos);
+    // Immediately update UI position
+    final newPos = position - const Duration(seconds: 10);
+    setState(() {
+      position = newPos < Duration.zero ? Duration.zero : newPos;
+    });
+    await _audioHandler.rewind();
     _saveCurrentPosition();
   }
 
   Future<void> _skipForward() async {
     if (_isOperationInProgress || _isDisposed) return;
-    final newPos = Duration(seconds: (position.inSeconds + 10).clamp(0, duration?.inSeconds ?? 0));
-    await _audioHandler.seek(newPos);
+    // Immediately update UI position
+    final maxDur = duration ?? position;
+    final newPos = position + const Duration(seconds: 10);
+    setState(() {
+      position = newPos > maxDur ? maxDur : newPos;
+    });
+    await _audioHandler.fastForward();
     _saveCurrentPosition();
   }
 
@@ -273,9 +249,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (_isOperationInProgress || _isDisposed) return;
     final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
     if (playlistProvider.hasPreviousTrack) {
-      final wasPlaying = isPlaying;
       playlistProvider.previousTrack();
-      _loadAudio(shouldAutoplay: wasPlaying);
     }
   }
 
@@ -283,9 +257,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (_isOperationInProgress || _isDisposed) return;
     final playlistProvider = Provider.of<PlaylistProvider>(context, listen: false);
     if (playlistProvider.hasNextTrack) {
-      final wasPlaying = isPlaying;
       playlistProvider.nextTrack();
-      _loadAudio(shouldAutoplay: wasPlaying);
     }
   }
 
@@ -460,9 +432,8 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                           : null,
                       onTap: () {
                         if (!_isOperationInProgress && !_isDisposed) {
-                          final wasPlaying = isPlaying;
                           playlistProvider.setCurrentIndex(index);
-                          _loadAudio(shouldAutoplay: wasPlaying);
+                          // Audio loading is handled by setCurrentIndex
                         }
                       },
                     );
@@ -481,7 +452,7 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
 
-    _positionDebounceTimer?.cancel();
+    _stopPositionPolling();
     _stateDebounceTimer?.cancel();
 
     _saveCurrentPosition();
@@ -498,5 +469,29 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     }
 
     super.dispose();
+  }
+
+  void _startPositionPolling() {
+    _stopPositionPolling();
+    _positionPollingTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
+      if (_isDisposed || !mounted) {
+        _stopPositionPolling();
+        return;
+      }
+      try {
+        final newPosition = await _audioHandler.getCurrentPosition();
+        if (!_isDisposed && mounted && newPosition != position) {
+          setState(() => position = newPosition);
+          _saveCurrentPosition();
+        }
+      } catch (e) {
+        logError('_startPositionPolling', 'Position polling error', e);
+      }
+    });
+  }
+
+  void _stopPositionPolling() {
+    _positionPollingTimer?.cancel();
+    _positionPollingTimer = null;
   }
 }

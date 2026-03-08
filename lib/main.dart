@@ -29,12 +29,18 @@ Future<void> main() async{
 
   final playlistProvider = PlaylistProvider();
   await playlistProvider.initialize();
+  
+  // Cast to specific type for direct usage
+  final playerHandler = audioHandler as AudioPlayerHandler;
+  playlistProvider.setAudioHandler(playerHandler);
 
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: playlistProvider),
-        Provider.value(value: audioHandler),
+        Provider<AudioPlayerHandler>.value(value: playerHandler),
+        // Also provide as base AudioHandler if needed elsewhere
+        Provider<AudioHandler>.value(value: audioHandler),
       ],
       child: MyApp(),
     ),

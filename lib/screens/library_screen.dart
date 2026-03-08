@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'dart:io';
 import '../models/loading_progress.dart';
 import '../services/logger_service.dart';
@@ -46,8 +46,8 @@ class LibraryScreen extends StatelessWidget {
   Future<Duration?> _getAudioDuration(String filePath) async {
     try {
       final player = AudioPlayer();
-      await player.setFilePath(filePath);
-      final duration = player.duration;
+      await player.setSource(DeviceFileSource(filePath));
+      final duration = await player.getDuration();
       await player.dispose();
       return duration;
     } catch (e) {
@@ -87,7 +87,6 @@ class LibraryScreen extends StatelessWidget {
   Future<void> _scanDirectory(BuildContext context) async {
     try {
       String? selectedDirectory = await FilePicker.platform.getDirectoryPath();
-      if (selectedDirectory == null) return;
 
       // Показываем диалог прогресса
       showDialog(
@@ -102,7 +101,7 @@ class LibraryScreen extends StatelessWidget {
       );
 
       List<AudioBook> audioBooks = [];
-      Directory directory = Directory(selectedDirectory);
+      Directory directory = Directory(selectedDirectory!);
 
       // Подсчет общего количества MP3 файлов
       int totalFiles = 0;
