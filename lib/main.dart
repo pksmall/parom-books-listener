@@ -31,7 +31,7 @@ Future<void> main() async{
   await playlistProvider.initialize();
   
   // Cast to specific type for direct usage
-  final playerHandler = audioHandler as AudioPlayerHandler;
+  final playerHandler = audioHandler;
   playlistProvider.setAudioHandler(playerHandler);
 
   runApp(

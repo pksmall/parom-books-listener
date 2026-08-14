@@ -67,12 +67,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
     // Listen to duration changes
     _player.onDurationChanged.listen((duration) {
-      if (duration != null) {
-        _currentDuration = duration;
-        // Update media item with new duration
-        if (mediaItem.value != null) {
-          mediaItem.add(mediaItem.value!.copyWith(duration: duration));
-        }
+      _currentDuration = duration;
+      // Update media item with new duration
+      if (mediaItem.value != null) {
+        mediaItem.add(mediaItem.value!.copyWith(duration: duration));
       }
     });
   }
